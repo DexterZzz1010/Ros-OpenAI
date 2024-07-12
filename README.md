@@ -699,6 +699,1142 @@ Also, these three environments will be connected to each other in the sense that
 
 - **Gazebo Environment** inherits from the **Gym Environment**. The Gym Environment (gym.Env) is the most basic Environment structure provided by OpenAI Gym framework.
 
+## First environment class: Task Environment
+
+The Task Environment is the highest one in the inheritance structure, which also means that it is the most specific one. This environent fully depends on the task we want the robot learn.
+
+Next, you can see an example of a Training Environment that trains the Pole to stay up on the Cart.
+
+**stay_up.py**
+
+```python
+from gym import utils
+from openai_ros.robot_envs import cartpole_env
+from gym.envs.registration import register
+from gym import error, spaces
+import rospy
+import math
+import numpy as np
+
+# The path is __init__.py of openai_ros, where we import the CartPoleStayUpEnv directly
+register(
+        id='CartPoleStayUp-v0',
+        entry_point='openai_ros:CartPoleStayUpEnv',
+        max_episode_steps=1000,
+    )
+
+class CartPoleStayUpEnv(cartpole_env.CartPoleEnv):
+    def __init__(self):
+        
+        self.get_params()
+        
+        self.action_space = spaces.Discrete(self.n_actions)
+        
+        cartpole_env.CartPoleEnv.__init__(
+            self, control_type=self.control_type
+            )
+            
+    def get_params(self):
+        #get configuration parameters
+        self.n_actions = rospy.get_param('/cartpole_v0/n_actions')
+        self.min_pole_angle = rospy.get_param('/cartpole_v0/min_pole_angle')
+        self.max_pole_angle = rospy.get_param('/cartpole_v0/max_pole_angle')
+        self.max_base_velocity = rospy.get_param('/cartpole_v0/max_base_velocity')
+        self.min_base_pose_x = rospy.get_param('/cartpole_v0/min_base_pose_x')
+        self.max_base_pose_x = rospy.get_param('/cartpole_v0/max_base_pose_x')
+        self.pos_step = rospy.get_param('/cartpole_v0/pos_step')
+        self.running_step = rospy.get_param('/cartpole_v0/running_step')
+        self.init_pos = rospy.get_param('/cartpole_v0/init_pos')
+        self.wait_time = rospy.get_param('/cartpole_v0/wait_time')
+        self.control_type = rospy.get_param('/cartpole_v0/control_type')
+        
+    def _set_action(self, action):
+        
+        # Take action
+        if action == 0: #LEFT
+            rospy.loginfo("GO LEFT...")
+            self.pos[0] -= self.pos_step
+        elif action == 1: #RIGHT
+            rospy.loginfo("GO RIGHT...")
+            self.pos[0] += self.pos_step
+        elif action == 2: #LEFT BIG
+            rospy.loginfo("GO LEFT BIG...")
+            self.pos[0] -= self.pos_step * 10
+        elif action == 3: #RIGHT BIG
+            rospy.loginfo("GO RIGHT BIG...")
+            self.pos[0] += self.pos_step * 10
+            
+            
+        # Apply action to simulation.
+        rospy.loginfo("MOVING TO POS=="+str(self.pos))
+
+        # 1st: unpause simulation
+        rospy.logdebug("Unpause SIM...")
+        self.gazebo.unpauseSim()
+
+        self.move_joints(self.pos)
+        rospy.logdebug("Wait for some time to execute movement, time="+str(self.running_step))
+        rospy.sleep(self.running_step) #wait for some time
+        rospy.logdebug("DONE Wait for some time to execute movement, time=" + str(self.running_step))
+
+        # 3rd: pause simulation
+        rospy.logdebug("Pause SIM...")
+        self.gazebo.pauseSim()
+
+    def _get_obs(self):
+        
+        data = self.joints
+        #       base_postion                base_velocity              pole angle                 pole velocity
+        obs = [round(data.position[1],1), round(data.velocity[1],1), round(data.position[0],1), round(data.velocity[0],1)]
+
+        return obs
+        
+    def _is_done(self, observations):
+        done = False
+        data = self.joints
+        
+        rospy.loginfo("BASEPOSITION=="+str(observations[0]))
+        rospy.loginfo("POLE ANGLE==" + str(observations[2]))
+        if (self.min_base_pose_x >= observations[0] or observations[0] >= self.max_base_pose_x): #check if the base is still within the ranges of (-2, 2)
+            rospy.logerr("Base Outside Limits==>min="+str(self.min_base_pose_x)+",pos="+str(observations[0])+",max="+str(self.max_base_pose_x))
+            done = True
+        if (self.min_pole_angle >= observations[2] or observations[2] >= self.max_pole_angle): #check if pole has toppled over
+            rospy.logerr(
+                "Pole Angle Outside Limits==>min=" + str(self.min_pole_angle) + ",pos=" + str(observations[2]) + ",max=" + str(
+                    self.max_pole_angle))
+            done = True
+            
+        return done
+        
+    def _compute_reward(self, observations, done):
+
+        """
+        Gives more points for staying upright, gets data from given observations to avoid
+        having different data than other previous functions
+        :return:reward
+        """
+        
+        if not done:
+            reward = 1.0
+        elif self.steps_beyond_done is None:
+            # Pole just fell!
+            self.steps_beyond_done = 0
+            reward = 1.0
+        else:
+            if self.steps_beyond_done == 0:
+                logger.warning("You are calling 'step()' even though this environment has already returned done = True. You should always call 'reset()' once you receive 'done = True' -- any further steps are undefined behavior.")
+            self.steps_beyond_done += 1
+            reward = 0.0
+        
+        return reward
+        
+    def _init_env_variables(self):
+        """
+        Inits variables needed to be initialised each time we reset at the start
+        of an episode.
+        :return:
+        """
+        self.steps_beyond_done = None
+        
+    def _set_init_pose(self):
+        """
+        Sets joints to initial position [0,0,0]
+        :return:
+        """
+        
+        self.check_publishers_connection()
+        
+        # Reset Internal pos variable
+        self.init_internal_vars(self.init_pos)
+        self.move_joints(self.pos)
+```
+
+
+
+代码解释：
+
+```python
+from gym import utils
+from openai_ros.robot_envs import cartpole_env
+from gym.envs.registration import register
+from gym import error, spaces
+import rospy
+import math
+import numpy as np
+
+# 注册CartPoleStayUp-v0环境到OpenAI Gym
+register(
+        id='CartPoleStayUp-v0',  # 环境的唯一标识符
+        entry_point='openai_ros:CartPoleStayUpEnv',  # 创建环境实例的入口点
+        max_episode_steps=1000,  # 每个episode的最大步数限制
+    )
+
+class CartPoleStayUpEnv(cartpole_env.CartPoleEnv):
+    def __init__(self):
+        """
+        初始化CartPoleStayUp环境实例。
+        这个构造函数首先从ROS参数服务器获取所有需要的环境参数，
+        然后设置动作空间，并调用基类构造函数来完成进一步的初始化。
+        """
+        self.get_params()  # 获取环境相关参数
+        self.action_space = spaces.Discrete(self.n_actions)  # 定义动作空间
+        cartpole_env.CartPoleEnv.__init__(self, control_type=self.control_type)  # 调用基类构造函数
+            
+    def get_params(self):
+        """
+        从ROS参数服务器获取所有需要的环境参数。
+        这些参数包括动作数量、杆的角度限制、基座的速度和位置限制等，
+        用于配置和控制CartPole的物理模型行为。
+        """
+        self.n_actions = rospy.get_param('/cartpole_v0/n_actions')
+        self.min_pole_angle = rospy.get_param('/cartpole_v0/min_pole_angle')
+        self.max_pole_angle = rospy.get_param('/cartpole_v0/max_pole_angle')
+        self.max_base_velocity = rospy.get_param('/cartpole_v0/max_base_velocity')
+        self.min_base_pose_x = rospy.get_param('/cartpole_v0/min_base_pose_x')
+        self.max_base_pose_x = rospy.get_param('/cartpole_v0/max_base_pose_x')
+        self.pos_step = rospy.get_param('/cartpole_v0/pos_step')
+        self.running_step = rospy.get_param('/cartpole_v0/running_step')
+        self.init_pos = rospy.get_param('/cartpole_v0/init_pos')
+        self.wait_time = rospy.get_param('/cartpole_v0/wait_time')
+        self.control_type = rospy.get_param('/cartpole_v0/control_type')
+        
+    def _set_action(self, action):
+        """
+        执行指定的动作，动作编号由 'action' 参数指定。
+        根据动作编号调整CartPole的位置，模拟不同的移动指令。
+        """
+        # 根据动作编号调整购物车位置
+        if action == 0:
+            rospy.loginfo("GO LEFT...")
+            self.pos[0] -= self.pos_step
+        elif action == 1:
+            rospy.loginfo("GO RIGHT...")
+            self.pos[0] += self.pos_step
+        elif action == 2:
+            rospy.loginfo("GO LEFT BIG...")
+            self.pos[0] -= self.pos_step * 10
+        elif action == 3:
+            rospy.loginfo("GO RIGHT BIG...")
+            self.pos[0] += self.pos_step * 10
+
+        # 更新仿真环境中的位置
+        rospy.loginfo("MOVING TO POS==" + str(self.pos))
+        rospy.logdebug("Unpause SIM...")
+        self.gazebo.unpauseSim()
+        self.move_joints(self.pos)
+        rospy.logdebug("Wait for some time to execute movement, time=" + str(self.running_step))
+        rospy.sleep(self.running_step)
+        rospy.logdebug("DONE Wait for some time to execute movement, time=" + str(self.running_step))
+        rospy.logdebug("Pause SIM...")
+        self.gazebo.pauseSim()
+
+    def _get_obs(self):
+        """
+        获取并返回当前环境的观测值，包括倒立摆的位置和速度，杆的角度和速度。
+        这些数据是从仿真环境中的关节状态获取的。
+        """
+        data = self.joints
+        obs = [round(data.position[1], 1), round(data.velocity[1], 1), round(data.position[0], 1), round(data.velocity[0], 1)]
+        return obs
+        
+    def _is_done(self, observations):
+        """
+        根据当前观测判断episode是否应该结束。
+        如果购物车超出了设定的位置范围或杆的角度超过了限制，则结束episode。
+        """
+        done = False
+        rospy.loginfo("BASEPOSITION==" + str(observations[0]))
+        rospy.loginfo("POLE ANGLE==" + str(observations[2]))
+        if (self.min_base_pose_x >= observations[0] or observations[0] >= self.max_base_pose_x) or \
+           (self.min_pole_angle >= observations[2] or observations[2] >= self.max_pole_angle):
+            rospy.logerr("Limit exceeded")
+            done = True
+        return done
+        
+    def _compute_reward(self, observations, done):
+        """
+        根据当前的状态计算并返回奖励。
+        如果任务没有完成（即杆未倒），则继续给予奖励。如果完成，则根据完成后的步数调整奖励。
+        """
+        if not done:
+            reward = 1.0
+        elif self.steps_beyond_done is None:
+            self.steps_beyond_done = 0
+            reward = 1.0
+        else:
+            self.steps_beyond_done += 1
+            reward = 0.0
+        return reward
+        
+    def _init_env_variables(self):
+        """
+        初始化或重置环境变量，为新的episode做准备。
+        主要是重置完成步数的计数器。
+        """
+        self.steps_beyond_done = None
+        
+    def _set_init_pose(self):
+        """
+        设置机器人的初始位置。
+        确保机器人的起始位置符合任务要求，为仿真的准确执行奠定基础。
+        """
+        self.check_publishers_connection()  # 确保ROS节点正常连接
+        self.init_internal_vars(self.init_pos)  # 初始化内部变量为初始位置
+        self.move_joints(self.init_pos)  # 移动关节到初始位置
+
+```
+
+
+
+
+
+
+
+It's very important that you understand that you can add any function that you want into this Task Environment. However, there are some functions that will **ALWAYS** need to be defined here because they are required for the rest of the Environments to work properly. These functions are:
+
+- The **_set_action()** function
+- The **_get_obs()** function
+- The **_is_done()** function
+- The **_compute_reward()** function
+- The **_set_init_pose()** function
+- The **_init_env_variables()** function
+
+If for your specific task, you don't need to implement some of these functions, you can just make them **pass** (like we do in this case with the _set_init_pose() and _init_env_variables() functions). But you will need to add them to your code anyway, or you will get a **NotImplementedError()**.
+
+
+
+### **Exercise 2.3**
+
+a) Inside **src** folder of the **my_cartpole_training** package, add a new script called **my_cartpole_task_env.py**. Into this new file, copy the contents of the [**stay_up.py**](https://s3.eu-west-1.amazonaws.com/notebooks.ws/course_openai_ROS/Course_OpenAIBaselines_Unit1.html?AWSAccessKeyId=AKIAJLU2ZOTUFJRMDOAA&Signature=ab4CkxYwJI0jSUIOOeO20fxV9KI%3D&Expires=1720800981#stay-up) script that you have just reviewed.
+
+b) Now, modify the Task Environment code so that it takes only two actions: move right and move left.
+
+**NOTE**: Also, you will need to modify the registration id of the environment, in order to avoid conflicts. You just need to change the **v0** for a **v1**.
+
+
+
+## Second environment class: Robot Environment
+
+The robot environment will then contain all the functions associated with the specific "robot" that you want to train. This means that it will contain all the functionalities that your robot will need in order to be controlled.
+
+For instance, let's focus on the CartPole example. Let's say that in order to be able to control a CartPole environment, we will basically need three things:
+
+- A way to check that all the systems (ROS topics, Publishers, etc.) are ready and working okay
+- A way to move the Cart alongside the rails
+- A way to get all the data about all the sensors that we want to evaluate (including the position of the Pole)
+
+For this case, then, we would need to define all these functions into the Robot Environment. Let's see an example of a Robot Environment script that takes into account the three points introduced above. You can check out the code here:
+
+
+
+**cartpole_env.py**
+
+```python
+#!/usr/bin/env python
+
+import gym
+import rospy
+import roslaunch
+import time
+import numpy as np
+from gym import utils, spaces
+from geometry_msgs.msg import Twist
+from std_srvs.srv import Empty
+from gym.utils import seeding
+from gym.envs.registration import register
+import copy
+import math
+import os
+
+from sensor_msgs.msg import JointState
+from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
+from std_msgs.msg import Float64
+from gazebo_msgs.srv import SetLinkState
+from gazebo_msgs.msg import LinkState
+from rosgraph_msgs.msg import Clock
+from openai_ros import robot_gazebo_env
+
+class CartPoleEnv(robot_gazebo_env.RobotGazeboEnv):
+    def __init__(
+        self, control_type
+    ):
+        
+        self.publishers_array = []
+        self._base_pub = rospy.Publisher('/cartpole_v0/foot_joint_velocity_controller/command', Float64, queue_size=1)
+        self._pole_pub = rospy.Publisher('/cartpole_v0/pole_joint_velocity_controller/command', Float64, queue_size=1)
+        self.publishers_array.append(self._base_pub)
+        self.publishers_array.append(self._pole_pub)
+        
+        rospy.Subscriber("/cartpole_v0/joint_states", JointState, self.joints_callback)
+        
+        self.control_type = control_type
+        if self.control_type == "velocity":
+            self.controllers_list = ['joint_state_controller',
+                                    'pole_joint_velocity_controller',
+                                    'foot_joint_velocity_controller',
+                                    ]
+                                    
+        elif self.control_type == "position":
+            self.controllers_list = ['joint_state_controller',
+                                    'pole_joint_position_controller',
+                                    'foot_joint_position_controller',
+                                    ]
+                                    
+        elif self.control_type == "effort":
+            self.controllers_list = ['joint_state_controller',
+                                    'pole_joint_effort_controller',
+                                    'foot_joint_effort_controller',
+                                    ]
+
+        self.robot_name_space = "cartpole_v0"
+        self.reset_controls = True
+
+        # Seed the environment
+        self._seed()
+        self.steps_beyond_done = None
+        
+        super(CartPoleEnv, self).__init__(
+            controllers_list=self.controllers_list,
+            robot_name_space=self.robot_name_space,
+            reset_controls=self.reset_controls
+            )
+
+    def joints_callback(self, data):
+        self.joints = data
+
+    def _seed(self, seed=None):
+        self.np_random, seed = seeding.np_random(seed)
+        return [seed]
+        
+    # RobotEnv methods
+    # ----------------------------
+
+    def _env_setup(self, initial_qpos):
+        self.init_internal_vars(self.init_pos)
+        self.set_init_pose()
+        self.check_all_systems_ready()
+        
+    def init_internal_vars(self, init_pos_value):
+        self.pos = [init_pos_value]
+        self.joints = None
+        
+    def check_publishers_connection(self):
+        """
+        Checks that all the publishers are working
+        :return:
+        """
+        rate = rospy.Rate(10)  # 10hz
+        while (self._base_pub.get_num_connections() == 0 and not rospy.is_shutdown()):
+            rospy.logdebug("No susbribers to _base_pub yet so we wait and try again")
+            try:
+                rate.sleep()
+            except rospy.ROSInterruptException:
+                # This is to avoid error when world is rested, time when backwards.
+                pass
+        rospy.logdebug("_base_pub Publisher Connected")
+
+        while (self._pole_pub.get_num_connections() == 0 and not rospy.is_shutdown()):
+            rospy.logdebug("No susbribers to _pole_pub yet so we wait and try again")
+            try:
+                rate.sleep()
+            except rospy.ROSInterruptException:
+                # This is to avoid error when world is rested, time when backwards.
+                pass
+        rospy.logdebug("_pole_pub Publisher Connected")
+
+        rospy.logdebug("All Publishers READY")
+
+    def _check_all_systems_ready(self, init=True):
+        self.base_position = None
+        while self.base_position is None and not rospy.is_shutdown():
+            try:
+                self.base_position = rospy.wait_for_message("/cartpole_v0/joint_states", JointState, timeout=1.0)
+                rospy.logdebug("Current cartpole_v0/joint_states READY=>"+str(self.base_position))
+                if init:
+                    # We Check all the sensors are in their initial values
+                    positions_ok = all(abs(i) <= 1.0e-02 for i in self.base_position.position)
+                    velocity_ok = all(abs(i) <= 1.0e-02 for i in self.base_position.velocity)
+                    efforts_ok = all(abs(i) <= 1.0e-01 for i in self.base_position.effort)
+                    base_data_ok = positions_ok and velocity_ok and efforts_ok
+                    rospy.logdebug("Checking Init Values Ok=>" + str(base_data_ok))
+            except:
+                rospy.logerr("Current cartpole_v0/joint_states not ready yet, retrying for getting joint_states")
+        rospy.logdebug("ALL SYSTEMS READY")
+        
+            
+    def move_joints(self, joints_array):
+        joint_value = Float64()
+        joint_value.data = joints_array[0]
+        rospy.logdebug("Single Base JointsPos>>"+str(joint_value))
+        self._base_pub.publish(joint_value)
+
+        
+    def get_clock_time(self):
+        self.clock_time = None
+        while self.clock_time is None and not rospy.is_shutdown():
+            try:
+                self.clock_time = rospy.wait_for_message("/clock", Clock, timeout=1.0)
+                rospy.logdebug("Current clock_time READY=>" + str(self.clock_time))
+            except:
+                rospy.logdebug("Current clock_time not ready yet, retrying for getting Current clock_time")
+        return self.clock_time
+    
+```
+
+代码解释
+
+```python
+from gym import utils
+from openai_ros.robot_envs import cartpole_env
+from gym.envs.registration import register
+from gym import error, spaces
+import rospy
+import math
+import numpy as np
+
+from sensor_msgs.msg import JointState
+from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
+from std_msgs.msg import Float64
+from gazebo_msgs.srv import SetLinkState
+from gazebo_msgs.msg import LinkState
+from rosgraph_msgs.msg import Clock
+from openai_ros import robot_gazebo_env
+
+# 注册CartPole环境到OpenAI Gym中
+register(
+    id='CartPoleStayUp-v0',  # 环境唯一标识符
+    entry_point='openai_ros:CartPoleStayUpEnv',  # 环境的入口点
+    max_episode_steps=1000,  # 每个episode的最大步数
+)
+
+class CartPoleEnv(robot_gazebo_env.RobotGazeboEnv):
+    """
+    CartPole环境的ROS与Gazebo接口，用于在Gazebo中实现和训练CartPole任务。
+    继承自RobotGazeboEnv，为CartPole任务提供必要的ROS话题和服务。
+    """
+    
+    """
+    This means that all the functions that are defined in the Gazebo Environment will also be accessible from this class.
+    """
+    def __init__(self, control_type):
+        """
+        初始化CartPole环境。
+        参数:
+        - control_type: 控制类型，包括 'velocity', 'position', 'effort'。
+        """
+        self.publishers_array = []
+        self._base_pub = rospy.Publisher('/cartpole_v0/foot_joint_velocity_controller/command', Float64, queue_size=1)
+        self._pole_pub = rospy.Publisher('/cartpole_v0/pole_joint_velocity_controller/command', Float64, queue_size=1)
+        self.publishers_array.append(self._base_pub)
+        self.publishers_array.append(self._pole_pub)
+        
+        rospy.Subscriber("/cartpole_v0/joint_states", JointState, self.joints_callback)
+        
+        self.control_type = control_type
+        # 根据控制类型定义控制器列表
+        if self.control_type == "velocity":
+            self.controllers_list = [
+                'joint_state_controller',
+                'pole_joint_velocity_controller',
+                'foot_joint_velocity_controller',
+            ]
+        elif self.control_type == "position":
+            self.controllers_list = [
+                'joint_state_controller',
+                'pole_joint_position_controller',
+                'foot_joint_position_controller',
+            ]
+        elif self.control_type == "effort":
+            self.controllers_list = [
+                'joint_state_controller',
+                'pole_joint_effort_controller',
+                'foot_joint_effort_controller',
+            ]
+
+        self.robot_name_space = "cartpole_v0"
+        self.reset_controls = True
+
+        self._seed()
+        self.steps_beyond_done = None
+        """
+        作用: 调用基类 RobotGazeboEnv 的构造函数。
+	参数说明:
+	controllers_list: 控制器列表，根据 control_type 属性初始化，定义了控制CartPole的ROS控制器。
+	robot_name_space: ROS的命名空间，用于指定节点和话题的范围。
+	reset_controls: 布尔值，指示是否在每次环境重置时重置控制器。
+	返回类型: 无返回值。这行代码通过调用基类的构造函数来完成环境对象的初始化，确保所有基类功能都被正确设置。	
+        """
+        super(CartPoleEnv, self).__init__(
+            controllers_list=self.controllers_list,
+            robot_name_space=self.robot_name_space,
+            reset_controls=self.reset_controls
+        )
+
+    def joints_callback(self, data):
+        """
+        ROS订阅回调函数，更新关节状态。
+        """
+        self.joints = data
+
+    def _seed(self, seed=None):
+        """
+        设置环境的随机种子，保证实验的可复现性。
+        """
+        self.np_random, seed = seeding.np_random(seed)
+        return [seed]
+        
+    def _env_setup(self, initial_qpos):
+        """
+        环境设置，在每次reset时调用，设置初始位置。
+        """
+        self.init_internal_vars(self.init_pos)
+        self.set_init_pose()
+        self.check_all_systems_ready()
+        
+    def init_internal_vars(self, init_pos_value):
+        """
+        初始化内部变量，包括初始位置。
+        """
+        self.pos = [init_pos_value]
+        self.joints = None
+        
+    def check_publishers_connection(self):
+        """
+        检查所有发布者是否已连接，确保能发送命令到Gazebo。
+        """
+        rate = rospy.Rate(10)  # 10Hz的频率
+        while (self._base_pub.get_num_connections() == 0 and not rospy.is_shutdown()):
+            rospy.logdebug("No subscribers to _base_pub yet so we wait and try again")
+            try:
+                rate.sleep()
+            except rospy.ROSInterruptException:
+                pass
+        rospy.logdebug("_base_pub Publisher Connected")
+
+        while (self._pole_pub.get_num_connections() == 0 and not rospy.is_shutdown()):
+            rospy.logdebug("No subscribers to _pole_pub yet so we wait and try again")
+            try:
+                rate.sleep()
+            except rospy.ROSInterruptException:
+                pass
+        rospy.logdebug("_pole_pub Publisher Connected")
+        rospy.logdebug("All Publishers READY")
+
+    def _check_all_systems_ready(self, init=True):
+        """
+        确认所有系统就绪，可以开始发送和接收数据。
+        """
+        self.base_position = None
+        while self.base_position is None and not rospy.is_shutdown():
+            try:
+                self.base_position = rospy.wait_for_message("/cartpole_v0/joint_states", JointState, timeout=1.0)
+                rospy.logdebug("Current cartpole_v0/joint_states READY=>" + str(self.base_position))
+                if init:
+                    positions_ok = all(abs(i) <= 1.0e-02 for i in self.base_position.position)
+                    velocity_ok = all(abs(i) <= 1.0e-02 for i in self.base_position.velocity)
+                    efforts_ok = all(abs(i) <= 1.0e-01 for i in self.base_position.effort)
+                    base_data_ok = positions_ok and velocity_ok and efforts_ok
+                    rospy.logdebug("Checking Init Values Ok=>" + str(base_data_ok))
+            except:
+                rospy.logerr("Current cartpole_v0/joint_states not ready yet, retrying for getting joint_states")
+        rospy.logdebug("ALL SYSTEMS READY")
+        
+    def move_joints(self, joints_array):
+        """
+        发布新的关节位置到Gazebo，驱动CartPole运动。
+        """
+        joint_value = Float64()
+        joint_value.data = joints_array[0]
+        rospy.logdebug("Single Base JointsPos>>" + str(joint_value))
+        self._base_pub.publish(joint_value)
+
+    def get_clock_time(self):
+        """
+        获取并返回仿真环境中的当前时钟时间。
+        """
+        self.clock_time = None
+        while self.clock_time is None and not rospy.is_shutdown():
+            try:
+                self.clock_time = rospy.wait_for_message("/clock", Clock, timeout=1.0)
+                rospy.logdebug("Current clock_time READY=>" + str(self.clock_time))
+            except:
+                rospy.logdebug("Current clock_time not ready yet, retrying for getting Current clock_time")
+        return self.clock_time
+
+```
+
+It's very important that you understand that you can add all the functions that you want to this Robot Environment. However, there are some functions that will **ALWAYS** need to be defined here because they are required for the rest of the Environments to work properly. These functions include:
+
+- The **__init__** function
+- The **_check_all_systems_ready()** function
+
+### Third environment class: Gazebo Environment
+
+The Gazebo Environment is used to connect the Robot Environment to the Gazebo simulator. For instance, it takes care of the resets of the simulator after each step, or the resets of the controllers (if needed).
+
+The most important thing you need to know about this environment is that it **will be transparent** to you. And what does this mean? Well, it basically means that you don't have to worry about it. This environment **will always be the same**, regardless of the robot or the kind of task to solve. So, you won't have to change it or work over it. Good news, right?
+
+Here you can have a look at how this environment looks:
+
+**robot_gazebo_env.py**
+
+
+
+```python
+import rospy
+import gym
+from gym.utils import seeding
+from .gazebo_connection import GazeboConnection
+from .controllers_connection import ControllersConnection
+#https://bitbucket.org/theconstructcore/theconstruct_msgs/src/master/msg/RLExperimentInfo.msg
+from theconstruct_msgs.msg import RLExperimentInfo
+
+# https://github.com/openai/gym/blob/master/gym/core.py
+class RobotGazeboEnv(gym.Env):
+
+    def __init__(self, robot_name_space, controllers_list, reset_controls):
+
+        # To reset Simulations
+        self.gazebo = GazeboConnection()
+        self.controllers_object = ControllersConnection(namespace=robot_name_space, controllers_list=controllers_list)
+        self.reset_controls = reset_controls
+        self.seed()
+
+        # Set up ROS related variables
+        self.episode_num = 0
+        self.reward_pub = rospy.Publisher('/openai/reward', RLExperimentInfo, queue_size=1)
+
+    # Env methods
+    def seed(self, seed=None):
+        self.np_random, seed = seeding.np_random(seed)
+        return [seed]
+
+    def step(self, action):
+        """
+        Function executed each time step.
+        Here we get the action execute it in a time step and retrieve the
+        observations generated by that action.
+        :param action:
+        :return: obs, reward, done, info
+        """
+
+        """
+        Here we should convert the action num to movement action, execute the action in the
+        simulation and get the observations result of performing that action.
+        """
+        self.gazebo.unpauseSim()
+        self._set_action(action)
+        self.gazebo.pauseSim()
+        obs = self._get_obs()
+        done = self._is_done(obs)
+        info = {}
+        reward = self._compute_reward(obs, done)
+        self._publish_reward_topic(reward, self.episode_num)
+
+        return obs, reward, done, info
+
+    def reset(self):
+        rospy.logdebug("Reseting RobotGazeboEnvironment")
+        self._reset_sim()
+        self._init_env_variables()
+        self._update_episode()
+        obs = self._get_obs()
+        return obs
+
+    def close(self):
+        """
+        Function executed when closing the environment.
+        Use it for closing GUIS and other systems that need closing.
+        :return:
+        """
+        rospy.logdebug("Closing RobotGazeboEnvironment")
+        rospy.signal_shutdown("Closing RobotGazeboEnvironment")
+
+    def _update_episode(self):
+        """
+        Increases the episode number by one
+        :return:
+        """
+        self.episode_num += 1
+
+    def _publish_reward_topic(self, reward, episode_number=1):
+        """
+        This function publishes the given reward in the reward topic for
+        easy access from ROS infrastructure.
+        :param reward:
+        :param episode_number:
+        :return:
+        """
+        reward_msg = RLExperimentInfo()
+        reward_msg.episode_number = episode_number
+        reward_msg.episode_reward = reward
+        self.reward_pub.publish(reward_msg)
+
+    # Extension methods
+    # ----------------------------
+
+    def _reset_sim(self):
+        """Resets a simulation
+        """
+        if self.reset_controls :
+            self.gazebo.unpauseSim()
+            self.controllers_object.reset_controllers()
+            self._check_all_systems_ready()
+            self._set_init_pose()
+            self.gazebo.pauseSim()
+            self.gazebo.resetSim()
+            self.gazebo.unpauseSim()
+            self.controllers_object.reset_controllers()
+            self._check_all_systems_ready()
+            self.gazebo.pauseSim()
+            
+        else:
+            self.gazebo.unpauseSim()
+            
+            self._check_all_systems_ready()
+            self._set_init_pose()
+            self.gazebo.pauseSim()
+            self.gazebo.resetSim()
+            self.gazebo.unpauseSim()
+            
+            self._check_all_systems_ready()
+            self.gazebo.pauseSim()
+        
+
+        return True
+
+    def _set_init_pose(self):
+        """Sets the Robot in its init pose
+        """
+        raise NotImplementedError()
+
+    def _check_all_systems_ready(self):
+        """
+        Checks that all the sensors, publishers and other simulation systems are
+        operational.
+        """
+        raise NotImplementedError()
+
+    def _get_obs(self):
+        """Returns the observation.
+        """
+        raise NotImplementedError()
+
+    def _init_env_variables(self):
+        """Inits variables needed to be initialised each time we reset at the start
+        of an episode.
+        """
+        raise NotImplementedError()
+
+    def _set_action(self, action):
+        """Applies the given action to the simulation.
+        """
+        raise NotImplementedError()
+
+    def _is_done(self, observations):
+        """Indicates whether or not the episode is done ( the robot has fallen for example).
+        """
+        raise NotImplementedError()
+
+    def _compute_reward(self, observations, done):
+        """Calculates the reward to give based on the observations given.
+        """
+        raise NotImplementedError()
+
+    def _env_setup(self, initial_qpos):
+        """Initial configuration of the environment. Can be used to configure initial state
+        and extract information from the simulation.
+        """
+        raise NotImplementedError()
+```
+
+代码解释
+
+
+
+```python
+import rospy
+import gym
+from gym.utils import seeding
+from .gazebo_connection import GazeboConnection
+from .controllers_connection import ControllersConnection
+from theconstruct_msgs.msg import RLExperimentInfo
+
+# 继承自 gym.Env，创建自定义的用于 Gazebo 机器人仿真的环境类
+class RobotGazeboEnv(gym.Env):
+
+    def __init__(self, robot_name_space, controllers_list, reset_controls):
+        """
+        初始化 RobotGazeboEnv 环境。
+
+        参数:
+        - robot_name_space (str): 该机器人环境的 ROS 命名空间。
+        - controllers_list (list): 要管理的控制器名称列表。
+        - reset_controls (bool): 指示在环境重置时是否重置控制器的标志。
+
+        此设置包括与 Gazebo 和 ROS 控制器的连接，对于仿真至关重要。
+        """
+        self.gazebo = GazeboConnection()  # 管理与 Gazebo 仿真的连接。
+        self.controllers_object = ControllersConnection(namespace=robot_name_space, controllers_list=controllers_list)  # 处理 ROS 控制器。
+        self.reset_controls = reset_controls  # 确定是否需要重置仿真控制器。
+        self.seed()  # 初始化随机种子。
+
+        # ROS 发布者和订阅者
+        self.episode_num = 0  # 跟踪周期数。
+        self.reward_pub = rospy.Publisher('/openai/reward', RLExperimentInfo, queue_size=1)  # 发布奖励以便监控。
+
+    def seed(self, seed=None):
+        """
+        为这个环境的随机数生成器设置种子，以确保实验的可复现性。
+        
+        参数:
+        - seed (int, 可选): 用于随机数生成的种子。
+        
+        返回:
+        - list: 包含使用的种子值的列表。
+        """
+        self.np_random, seed = seeding.np_random(seed)
+        return [seed]
+
+    def step(self, action):
+        """
+        执行环境动力学的一个时间步。
+        
+        参数:
+        - action: 环境代理提供的动作。
+        
+        返回:
+        - obs: 代理对当前环境的观察。
+        - reward: 上一个动作后返回的奖励量。
+        - done: 该周期是否已结束，此时进一步的 step() 调用将返回未定义结果。
+        - info: 包含辅助诊断信息（有助于调试和有时候是学习）。
+        """
+        self.gazebo.unpauseSim()  # 解除仿真暂停以进行观察。
+        self._set_action(action)  # 应用动作。
+        self.gazebo.pauseSim()  # 动作应用后暂停仿真。
+        obs = self._get_obs()  # 获取当前可观测的状态。
+        done = self._is_done(obs)  # 检查该周期是否结束。
+        reward = self._compute_reward(obs, done)  # 计算奖励。
+        self._publish_reward_topic(reward, self.episode_num)  # 发布奖励信息。
+        return obs, reward, done, {}
+
+    def reset(self):
+        """
+        重置环境状态并返回初始观察。
+        
+        返回:
+        - obs: 重置环境后的初始观察。
+        """
+        rospy.logdebug("重置 RobotGazeboEnvironment")
+        self._reset_sim()  # 重置仿真。
+        self._init_env_variables()  # 初始化环境变量。
+        self._update_episode()  # 更新周期计数器。
+        return self._get_obs()  # 返回初始观察。
+
+    def close(self):
+        """
+        执行必要的清理操作。
+        """
+        rospy.logdebug("关闭 RobotGazeboEnvironment")
+        rospy.signal_shutdown("关闭 RobotGazeboEnvironment")  # 关闭 ROS 节点。
+
+    def _update_episode(self):
+        """
+        增加一次周期计数。
+        """
+        self.episode_num += 1
+
+    def _publish_reward_topic(self, reward, episode_number=1):
+        """
+        将给定的奖励发布到 ROS 主题中。
+        
+        参数:
+        - reward: 要发布的奖励。
+        - episode_number: 当前周期数。
+        """
+        reward_msg = RLExperimentInfo()  # 创建用于发布的消息。
+        reward_msg.episode_number = episode_number
+        reward_msg.episode_reward = reward
+        self.reward_pub.publish(reward_msg)  # 发布奖励。
+
+    # 子类应该实现的方法
+    def _reset_sim(self):
+        """
+        重置仿真至初始状态。
+        """
+        if self.reset_controls:
+            self.gazebo.unpauseSim()  # 解除仿真暂停以进行重置。
+            self.controllers_object.reset_controllers()  # 将控制器重置至初始状态。
+            self._check_all_systems_ready()  # 检查所有系统是否就绪。
+            self._set_init_pose()  # 设置初始姿势。
+            self.gazebo.pauseSim()  # 设置姿势后暂停仿真。
+            self.gazebo.resetSim()  # 重置仿真以开始新的。
+            self.gazebo.unpauseSim()  # 解除暂停以重新应用设置。
+            self.controllers_object.reset_controllers()  # 仿真重置后再次重置控制器。
+            self._check_all_systems_ready()  # 最终检查。
+            self.gazebo.pauseSim()  # 最终暂停以开始处理。
+        else:
+            self.gazebo.unpauseSim()  # 如果不重置控制器，只解除暂停。
+            self._check_all_systems_ready()  # 检查系统就绪情况。
+            self._set_init_pose()  # 设置初始机器人姿势。
+            self.gazebo.pauseSim()  # 设置后暂停。
+            self.gazebo.resetSim()  # 重置仿真。
+            self.gazebo.unpauseSim()  # 解除暂停以应用重置设置。
+            self._check_all_systems_ready()  # 最终系统检查。
+            self.gazebo.pauseSim()  # 最终暂停前准备。
+
+        return True
+
+    def _set_init_pose(self):
+        """
+        设置机器人的初始姿势。
+        """
+        raise NotImplementedError("该方法应由子类重写")
+
+    def _check_all_systems_ready(self):
+        """
+        确保所有的传感器、发布者和其他仿真系统处于运行状态。
+        """
+        raise NotImplementedError("该方法应由子类重写")
+
+    def _get_obs(self):
+        """
+        获取当前的观测值。
+        """
+        raise NotImplementedError("该方法应由子类重写")
+
+    def _init_env_variables(self):
+        """
+        在每个周期开始时初始化需要的环境变量。
+        """
+        raise NotImplementedError("该方法应由子类重写")
+
+    def _set_action(self, action):
+        """
+        将给定的动作应用于仿真。
+        """
+        raise NotImplementedError("该方法应由子类重写")
+
+    def _is_done(self, observations):
+        """
+        根据观测值判断周期是否结束（例如机器人是否倒下）。
+        """
+        raise NotImplementedError("该方法应由子类重写")
+
+    def _compute_reward(self, observations, done):
+        """
+        根据给定的观测值和完成状态计算奖励。
+        """
+        raise NotImplementedError("该方法应由子类重写")
+
+    def _env_setup(self, initial_qpos):
+        """
+        环境的初始配置。可以用于配置初始状态和提取仿真数据。
+        """
+        raise NotImplementedError("该方法应由子类重写")
+
+```
+
+### Visualizing the reward
+
+As you have seen in the previous section, where we discussed about the Gazebo Environment, this environment publishes the reward into a topic named **/openai/reward**. This is very important, because it will allow us to visualize our reward using regular ROS tools. For instance, **rqt_multiplot**.
+
+**rqt_multiplot** is similar to rqt_plot, since it also provides a GUI for visualizing 2D plots, but it's a little bit more complex and provides more features. For instance, you can visualize multiple plots at the same time, or you can also customize the axis for your plot.
+
+In the next exercise, we are going to see how to visualize the reward of our training using the rqt_multiplot tool.
+
+
+
+
+
+**Exercise 2.6**
+
+a) First of all, let's start the rqt_multiplot tool.
+
+Execute in WebShell #1
+
+```
+rosrun rqt_multiplot rqt_multiplot
+```
+
+b) Hit the icon with a screen in the top-right corner of the IDE window![img](https://s3.eu-west-1.amazonaws.com/notebooks.ws/course_openai_ROS/img/font-awesome_desktop.png)in order to open the Graphic Interface window.
+
+You should now see something like this in this new window.
+
+![img](https://s3.eu-west-1.amazonaws.com/notebooks.ws/course_openai_ROS/img/rqt_multiplot1.png)
+
+c) Next, let's launch our training script, so that we start getting the rewards published into the **/openai/reward** topic.
+
+Execute in WebShell #1
+
+
+
+```
+roslaunch cartpole_v0_training start_training.launch
+```
+
+d) Next, let's configure our plot. For that, first, you'll need to click on the **Configure plot** button, at the top-right side of the window.
+
+![img](https://s3.eu-west-1.amazonaws.com/notebooks.ws/course_openai_ROS/img/rqt_multiplot2.png)
+
+e) Give a name to your new plot, and click on the **Add curve** icon.
+
+![img](https://s3.eu-west-1.amazonaws.com/notebooks.ws/course_openai_ROS/img/rqt_multiplot3.png)
+
+f) Next, set the topic to **/openai/reward**. Automatically, the rest of the field will be autocompleted. For the X-Axis, select the **episode_number** field. For the Y-Axis, select the **episode_reward** field. Like in the picture below.
+
+![img](https://s3.eu-west-1.amazonaws.com/notebooks.ws/course_openai_ROS/img/rqt_multiplot4.png)
+
+When you are done, just click on the **Enter** key on your keyboard.
+
+g) Finally, in the plot visualization window, you will need to click on the **Run plot** button in order to start visualizing your new plot.
+
+![img](https://s3.eu-west-1.amazonaws.com/notebooks.ws/course_openai_ROS/img/rqt_multiplot5.png)
+
+If everything went OK, you should visualize something like this:
+
+![img](https://s3.eu-west-1.amazonaws.com/notebooks.ws/course_openai_ROS/img/rqt_multiplot7.png)
+
+You can also save, if you want, your plot configuration. This way, you will be able to load it at any time later. Remember to save it into your **catkin_ws/src** workspace, so that it will also be saved when you close the Course.
+
+![img](https://s3.eu-west-1.amazonaws.com/notebooks.ws/course_openai_ROS/img/rqt_multiplot6.png)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
