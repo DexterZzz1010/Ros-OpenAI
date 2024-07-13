@@ -1,6 +1,6 @@
 # Using OpenAI with ROS
 
-# Unit 2: Understanding the ROS + OpenAI structure
+# Unit 1: Understanding the ROS + OpenAI structure
 
 In this unit, you are going to follow, step by step, the full workflow of a CartPole simulated environment, including all the environments and scripts involved in its training.
 
@@ -699,7 +699,7 @@ Also, these three environments will be connected to each other in the sense that
 
 - **Gazebo Environment** inherits from the **Gym Environment**. The Gym Environment (gym.Env) is the most basic Environment structure provided by OpenAI Gym framework.
 
-## First environment class: Task Environment
+## Task Environment
 
 The Task Environment is the highest one in the inheritance structure, which also means that it is the most specific one. This environent fully depends on the task we want the robot learn.
 
@@ -1013,7 +1013,7 @@ b) Now, modify the Task Environment code so that it takes only two actions: move
 
 
 
-## Second environment class: Robot Environment
+## Robot Environment
 
 The robot environment will then contain all the functions associated with the specific "robot" that you want to train. This means that it will contain all the functionalities that your robot will need in order to be controlled.
 
@@ -1368,7 +1368,7 @@ It's very important that you understand that you can add all the functions that 
 - The **__init__** function
 - The **_check_all_systems_ready()** function
 
-### Third environment class: Gazebo Environment
+## Gazebo Environment
 
 The Gazebo Environment is used to connect the Robot Environment to the Gazebo simulator. For instance, it takes care of the resets of the simulator after each step, or the resets of the controllers (if needed).
 
@@ -1735,7 +1735,7 @@ class RobotGazeboEnv(gym.Env):
 
 ```
 
-### Visualizing the reward
+## Visualizing the reward
 
 As you have seen in the previous section, where we discussed about the Gazebo Environment, this environment publishes the reward into a topic named **/openai/reward**. This is very important, because it will allow us to visualize our reward using regular ROS tools. For instance, **rqt_multiplot**.
 
@@ -1743,11 +1743,7 @@ As you have seen in the previous section, where we discussed about the Gazebo En
 
 In the next exercise, we are going to see how to visualize the reward of our training using the rqt_multiplot tool.
 
-
-
-
-
-**Exercise 2.6**
+### **Exercise 2.6**
 
 a) First of all, let's start the rqt_multiplot tool.
 
@@ -1801,6 +1797,187 @@ You can also save, if you want, your plot configuration. This way, you will be a
 
 
 
+## Unit 2: How to apply openai_ros to a new robot
+
+**The moving cube robot**
+
+This robot was developed by the **ETHZurich** and it's a perfect platform for control theory and mechanical physics. You can find more information in this link: [Cubli Research](http://www.idsc.ethz.ch/research-dandrea/research-projects/cubli.html)
+
+In order to see the video below, select the next cell of the notebook and press the *play* button.
+
+
+
+```python
+from IPython.display import YouTubeVideo
+# Cubli Robot created By ETHZurich
+# Video credit: William Stein.
+YouTubeVideo('n_6p-1J551Y')
+```
+
+**The simulation of the robot**
+
+We have created a simulation of the Cubli robot, the one you can see on the simulation window. This first simulated version has only **One** inertia disk, but it s enough to the goal we want to achieve.
+
+我们已经对Cubli机器人进行了模拟，您可以在模拟窗口上看到一个。这个第一个模拟版本只有一个惯性磁盘，但足以实现目标。
+
+
+
+**The goal we want the robot to learn**
+
+We want to make this robot be able to walk around in the direction that we want. And it has to do it by learning by itself, not by using mathematical calculations as was done with the original.
+
+So, the objective is to make the Cubli robot learn how to **move forwards in the WORLD Y-AXIS direction.**
+
+In the next units of this course, we are going to learn how to build all the software parts to achieve that goal
+
+**Structure of the next units:**
+
+1. On unit 3, you are going to **create a new Robot Environment for the Cubli** that allows you to access the sensors and actuators.
+2. On unit 4, you are going to **create the Training Environment** that inherits from the Robot Environment that you created. You will use this Environment to define the reward and the conditions to detect when the task is done. You will also use it to **provide to the training algorithm the vector of observations**, as well as to **provide to the Robot Environment the actual commands to move** based on the action decided by the training algorithm.
+3. On unit 5, you will **create a Training Script for Qlearning and deepQ** that uses your created Task Environment.
+
+**我们希望机器人实现的目标**
+
+我们的目标是让这个机器人能够自主学习在我们希望的方向上行走。它需要通过自学来实现这一点，而不是使用像原来那样的数学计算。
+
+因此，目标是让Cubli机器人学会如何**在世界Y轴方向上前进**。
+
+在接下来的课程单元中，**我们将学习构建实现该目标所需的所有软件部分**
+
+**接下来单元的结构**：
+
+1. 在第三单元，你将**为Cubli创建一个新的机器人环境**，使你能够访问传感器和执行器。
+2. 在第四单元，你将**创建一个继承自你创建的机器人环境的训练环境**。你将使用这个环境来定义奖励和检测任务完成的条件。你还将使用它来**提供给训练算法观察向量**，以及根据训练算法决定的动作**向机器人环境提供实际的移动命令**。
+3. 在第五单元，你将**为Q学习和深度Q创建一个训练脚本**，使用你创建的任务环境。
+
+
+
+So, you now understand how the **CartPole Environment structure** works. Now, we need to create one from scratch for the One-Disk-Moving-Cube. There are three main steps:
+
+- We need to create a **Robot Environment** that has the basic functions needed to use the RoboCube.
+- We need to decide how we move the RoboCube and how to get the sensor data.
+- We need to create functions that allow environments that inherit from our class to retrieve sensor data and access the cube's functionality, without knowing all the ROS related stuff.
+
+
+
+With this created, you will have a **Robot Environment** that can be used by any **Task Environment** that you create afterwards.
+
+
+
+### Step 0. Create a package to place all your code in
+
+We will first create a package that will hold all the code that you generate in the next chapters.
+
+Execute in WebShell #1
+
+```
+roscd; cd ../src; 
+```
+
+
+
+```
+catkin_create_pkg my_moving_cube_pkg rospy openai_ros
+```
+
+
+
+```
+cd my_moving_cube_pkg/
+```
+
+
+
+```
+mkdir scripts; cd scripts
+```
+
+
+
+## Step 1. Create a basic Robot Environment
+
+To create our Robot Environment, we will start from a Robot Environment template (see the code below). You can also find this template inside the [*openai_ros* package](https://bitbucket.org/theconstructcore/openai_ros/src/version2/) under the *openai_ros/templates* directory.
+
+**template_my_robot_env.py**
+
+
+
+```python
+from openai_ros import robot_gazebo_env
+
+
+class MyRobotEnv(robot_gazebo_env.RobotGazeboEnv):
+    """Superclass for all Robot environments.
+    """
+
+    def __init__(self):
+        """Initializes a new Robot environment.
+        """
+        # Variables that we give through the constructor.
+
+        # Internal Vars
+        self.controllers_list = ['my_robot_controller1','my_robot_controller2', ..., 'my_robot_controllerX']
+
+        self.robot_name_space = "my_robot_namespace"
+
+        reset_controls_bool = True or False
+        
+        # We launch the init function of the Parent Class robot_gazebo_env.RobotGazeboEnv
+        
+        super(MyRobotEnv, self).__init__(controllers_list=self.controllers_list,
+                                                robot_name_space=self.robot_name_space,
+                                                reset_controls=reset_controls_bool)
+
+    # Methods needed by the RobotGazeboEnv
+    # ----------------------------
+    
+    
+
+    def _check_all_systems_ready(self):
+        """
+        Checks that all the sensors, publishers and other simulation systems are
+        operational.
+        """
+        # TODO
+        return True
+    
+    # Methods that the TaskEnvironment will need to define here as virtual
+    # because they will be used in RobotGazeboEnv GrandParentClass and defined in the
+    # TaskEnvironment.
+    # ----------------------------
+    def _set_init_pose(self):
+        """Sets the Robot in its init pose
+        """
+        raise NotImplementedError()
+    
+    
+    def _init_env_variables(self):
+        """Inits variables needed to be initialised each time we reset at the start
+        of an episode.
+        """
+        raise NotImplementedError()
+
+    def _compute_reward(self, observations, done):
+        """Calculates the reward to give based on the observations given.
+        """
+        raise NotImplementedError()
+
+    def _set_action(self, action):
+        """Applies the given action to the simulation.
+        """
+        raise NotImplementedError()
+
+    def _get_obs(self):
+        raise NotImplementedError()
+
+    def _is_done(self, observations):
+        """Checks if episode done based on observations given.
+        """
+        raise NotImplementedError()
+        
+    # Methods that the TaskEnvironment will need.
+    # ----------------------------
+```
 
 
 
@@ -1808,40 +1985,151 @@ You can also save, if you want, your plot configuration. This way, you will be a
 
 
 
+You can see here that the template is divided into four parts:
+
+1. Initialization of the Robot Environment class (in the example above, **MyRobotEnv**). It inherits from the *RobotGazeboEnv*.
+2. Definition of the virtual methods needed by the Gazebo Environment, which were declared virtually inside *RobotGazeboEnv*.
+3. Virtual definition of methods that the Task Environment will need to define here as virtual because they will be used in the RobotGazeboEnv GrandParentClass and defined in the Task Environment.
+4. Definition of methods that the Task Environment will need to use from the class.
+
+
+
+```python
+from openai_ros import robot_gazebo_env
+
+class MyRobotEnv(robot_gazebo_env.RobotGazeboEnv):
+    """所有机器人环境的超类。"""
+    
+    def __init__(self):
+        """
+        初始化一个新的机器人环境。
+        此构造函数设置必要的变量，并调用父类的初始化函数。
+        """
+        # 通过构造函数给出的变量
+
+        # 内部变量
+        self.controllers_list = ['my_robot_controller1', 'my_robot_controller2', ..., 'my_robot_controllerX']
+        # 控制器列表，包含管理机器人各部分的控制器名称。
+
+        self.robot_name_space = "my_robot_namespace"
+        # 机器人的ROS命名空间，用于区分不同机器人或相同机器人的不同实例。
+
+        reset_controls_bool = True or False
+        # 布尔值，指示是否在环境重置时重置控制器。
+        
+        # 调用父类的初始化函数
+        super(MyRobotEnv, self).__init__(controllers_list=self.controllers_list,
+                                         robot_name_space=self.robot_name_space,
+                                         reset_controls=reset_controls_bool)
+
+    def _check_all_systems_ready(self):
+        """
+        检查所有传感器、发布者和其他仿真系统是否处于运行状态。
+        返回：
+        - True: 表示所有系统都已准备好。
+        """
+        # TODO: 实现具体检查逻辑
+        return True
+    
+    def _set_init_pose(self):
+        """
+        设置机器人的初始姿态。
+        此方法必须在子类中实现。
+        """
+        raise NotImplementedError("必须在子类中实现此方法。")
+    
+    def _init_env_variables(self):
+        """
+        在每个周期开始时初始化所需的环境变量。
+        此方法必须在子类中实现。
+        """
+        raise NotImplementedError("必须在子类中实现此方法。")
+
+    def _compute_reward(self, observations, done):
+        """
+        根据给定的观察和完成状态计算奖励。
+        参数:
+        - observations: 当前的观察数据。
+        - done: 布尔值，表示周期是否结束。
+        此方法必须在子类中实现。
+        """
+        raise NotImplementedError("必须在子类中实现此方法。")
+
+    def _set_action(self, action):
+        """
+        将给定的动作应用于仿真。
+        参数:
+        - action: 要应用的动作。
+        此方法必须在子类中实现。
+        """
+        raise NotImplementedError("必须在子类中实现此方法。")
+
+    def _get_obs(self):
+        """
+        返回当前的观察数据。
+        此方法必须在子类中实现。
+        """
+        raise NotImplementedError("必须在子类中实现此方法。")
+
+    def _is_done(self, observations):
+        """
+        根据给定的观察数据判断周期是否结束。
+        参数:
+        - observations: 当前的观察数据。
+        此方法必须在子类中实现。
+        """
+        raise NotImplementedError("必须在子类中实现此方法。")
+
+```
 
 
 
 
 
+## Step 2- Initialization of the class MyRobotEnv
+
+Open the *my_cube_single_disk_env.py* file on the IDE and copy the following text inside:
 
 
 
+```
+#! /usr/bin/env python
 
+from openai_ros import robot_gazebo_env
 
+class MyCubeSingleDiskEnv(robot_gazebo_env.RobotGazeboEnv):
+    """Superclass for all CubeSingleDisk environments.
+    """
 
+    def __init__(self, init_roll_vel):
+        """Initializes a new CubeSingleDisk environment.
+        """
+        # Variables that we give through the constructor.
+        self.init_roll_vel = init_roll_vel
 
+        self.controllers_list = ['my_robot_controller1','my_robot_controller2', ..., 'my_robot_controllerX']
 
+        self.robot_name_space = "my_robot_namespace"
 
+        reset_controls_bool = True or False
+        
+        # We launch the init function of the Parent Class robot_gazebo_env.RobotGazeboEnv
+        super(MyCubeSingleDiskEnv, self).__init__(controllers_list=self.controllers_list,
+                                                robot_name_space=self.robot_name_space,
+                                                reset_controls=reset_controls_bool)
+```
 
+In the previous code, we are creating the class for the Cubli Robot Environment. We are calling that class: **MyCubeSingleDiskEnv**.
 
+As you can see, we just took the first lines of the template above and modified a few things to accomodate for the Cubli robot. Let's review them:
 
+Here we import the **robot_gazebo_env** from the python module folder openai_ros. Inside **robot_gazebo_env**, we find the class **RobotGazeboEnv**. In the class definition of **MyCubeSingleDiskEnv**, we give inheritance to **robot_gazebo_env.RobotGazeboEnv**. That means to look for the python module file **robot_gazebo_env**, and inside, get the class **RobotGazeboEnv**.
 
+In the previous code, we are creating the class for the Cubli Robot Environment. We are calling that class: **MyCubeSingleDiskEnv**.
 
+As you can see, we just took the first lines of the template above and modified a few things to accomodate for the Cubli robot. Let's review them:
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+Here we import the **robot_gazebo_env** from the python module folder openai_ros. Inside **robot_gazebo_env**, we find the class **RobotGazeboEnv**. In the class definition of **MyCubeSingleDiskEnv**, we give inheritance to **robot_gazebo_env.RobotGazeboEnv**. That means to look for the python module file **robot_gazebo_env**, and inside, get the class **RobotGazeboEnv**.
 
 
 
