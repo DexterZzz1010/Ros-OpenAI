@@ -1983,8 +1983,6 @@ class MyRobotEnv(robot_gazebo_env.RobotGazeboEnv):
 
 
 
-
-
 You can see here that the template is divided into four parts:
 
 1. Initialization of the Robot Environment class (in the example above, **MyRobotEnv**). It inherits from the *RobotGazeboEnv*.
