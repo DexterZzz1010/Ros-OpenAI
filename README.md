@@ -1864,6 +1864,34 @@ With this created, you will have a **Robot Environment** that can be used by any
 
 
 
+**第0步：创建一个包来存放所有代码**
+
+- 这一步骤首先在 ROS 工作空间中创建一个名为 `my_moving_cube_pkg` 的新包，此包将用于存放后续章节生成的所有代码。
+- 在包中，创建了一个名为 `scripts` 的文件夹，并在其中创建了一个名为 `my_cube_single_disk_env.py` 的 Python 文件，这个文件将用于编写机器人环境的代码。
+
+**第1步：创建基础的机器人环境****
+
+- 使用 `openai_ros` 包中提供的 `RobotGazeboEnv` 类作为基础，创建一个新的机器人环境类 `MyCubeSingleDiskEnv`。
+- 初始化函数中，设置了控制器列表、命名空间和是否在每个学习周期开始时重置控制器的布尔值。
+- 类中定义了一系列的方法，这些方法将在子类中被具体实现，用于环境的初始化、动作的应用、奖励的计算、观测的获取和判断任务是否完成。
+
+**第2步：初始化 `MyRobotEnv` 类**
+
+- 这个类继承自 `RobotGazeboEnv`，包含初始化新的Cubli机器人环境所需的所有设置。
+- 类构造函数中通过构造器传递初始化滚动速度，并设置控制器列表和命名空间，这些信息用于配置Gazebo环境以适应特定的机器人模型和控制需求。
+
+**第3步：定义由 `RobotGazeboEnv` 需要的虚拟方法**
+
+- 在 `MyRobotEnv` 类中，有几个方法被定义为虚拟方法（通过抛出 `NotImplementedError` 异常），这意味着它们需要在子类中具体实现。
+- 这些方法包括设置机器人的初始姿态、初始化环境变量、计算奖励、应用动作、获取观测和判断任务是否完成等。
+
+**第4步：实际使用**
+
+- 代码中演示了如何使用 ROS 服务和主题来与 Gazebo 仿真进行交互，如何启动和暂停仿真，如何重置控制器，以及如何订阅和发布消息。
+- 为了确保系统的正确初始化和控制器的正确连接，添加了检查系统就绪状态和发布器连接的方法。
+
+
+
 ### Step 0. Create a package to place all your code in
 
 We will first create a package that will hold all the code that you generate in the next chapters.
@@ -1894,7 +1922,7 @@ mkdir scripts; cd scripts
 
 
 
-## Step 1. Create a basic Robot Environment
+### Step 1. Create a basic Robot Environment
 
 To create our Robot Environment, we will start from a Robot Environment template (see the code below). You can also find this template inside the [*openai_ros* package](https://bitbucket.org/theconstructcore/openai_ros/src/version2/) under the *openai_ros/templates* directory.
 
@@ -2084,7 +2112,7 @@ class MyRobotEnv(robot_gazebo_env.RobotGazeboEnv):
 
 
 
-## Step 2- Initialization of the class MyRobotEnv
+### Step 2- Initialization of the class MyRobotEnv
 
 Open the *my_cube_single_disk_env.py* file on the IDE and copy the following text inside:
 
@@ -2121,15 +2149,126 @@ As you can see, we just took the first lines of the template above and modified 
 
 Here we import the **robot_gazebo_env** from the python module folder openai_ros. Inside **robot_gazebo_env**, we find the class **RobotGazeboEnv**. In the class definition of **MyCubeSingleDiskEnv**, we give inheritance to **robot_gazebo_env.RobotGazeboEnv**. That means to look for the python module file **robot_gazebo_env**, and inside, get the class **RobotGazeboEnv**.
 
-In the previous code, we are creating the class for the Cubli Robot Environment. We are calling that class: **MyCubeSingleDiskEnv**.
+```
+from openai_ros import robot_gazebo_env
 
-As you can see, we just took the first lines of the template above and modified a few things to accomodate for the Cubli robot. Let's review them:
+class MyCubeSingleDiskEnv(robot_gazebo_env.RobotGazeboEnv):
+```
 
-Here we import the **robot_gazebo_env** from the python module folder openai_ros. Inside **robot_gazebo_env**, we find the class **RobotGazeboEnv**. In the class definition of **MyCubeSingleDiskEnv**, we give inheritance to **robot_gazebo_env.RobotGazeboEnv**. That means to look for the python module file **robot_gazebo_env**, and inside, get the class **RobotGazeboEnv**.
+Then, we add a variable in the init function. These variables are the ones you want the **Task Environment** to pass to this new Robot Environment. We need it to pass the speed at the start of each episode to set the roll disk. For this scenario, it will most likely always be **0.0**, but it could change depending on the **Task Environment**.
+
+How to decide which variables will be required?... well it depends on how good you know the robot and what will be required from it.
+
+```
+def __init__(self, init_roll_vel):
+    # Variables that we give through the constructor.
+    self.init_roll_vel = init_roll_vel
+```
+
+Now we define some variables that need to be passed to the **RobotGazeboEnv** super constructor method **init**. These are: **controllers_list, robot_name_space, and reset_controls**. These variables are used by the RobotGazeboEnv to know which controllers to reset each time a learning episode starts. **THOSE VARIABLES ARE ALWAYS MANDATORY**, for any openai_ros problem you want to solve.
+
+In order to know the list of controllers for a given robot you have two different options:
+
+1. Check the launch file of the simulation and figure out the controllers that are loaded.
+2. We can get a list of the controllers available in a simulation by calling the service that provides the list of controllers.
+
+Let's use the last option to the Cubli simulation.
+
+Execute in WebShell #1
+
+First be sure that the simulation is **unpaused**, otherwise nothing will apear in the rosservice call to list controllers.
+
+```
+rosservice call /gazebo/unpause_physics “{}”
+```
+
+```
+rosservice call /moving_cube/controller_manager/list_controllers "{}"
+```
+
+WebShell #1 Output
 
 
 
+```
+controller:
+  -
+    name: "joint_state_controller"
+    state: "running"
+    type: "joint_state_controller/JointStateController"
+    claimed_resources:
+      -
+        hardware_interface: "hardware_interface::JointStateInterface"
+        resources: []
+  -
+    name: "inertia_wheel_roll_joint_velocity_controller"
+    state: "running"
+    type: "effort_controllers/JointVelocityController"
+    claimed_resources:
+      -
+        hardware_interface: "hardware_interface::EffortJointInterface"
+        resources: [inertia_wheel_roll_joint]
+```
 
+So, based on the output provided by the command, we can identify two different controllers being loaded:
+
+- joint_state_controller
+- inertia_wheel_roll_joint_velocity_controller
+
+Hence, the list of controllers in the __init__ function should look something like this:
+
+```
+self.controllers_list = ['joint_state_controller','inertia_wheel_roll_joint_velocity_controller']
+```
+
+Next, to get the **namespace used in the controllers**, just execute the following command to see all the controllers' namespace:
+
+Execute in WebShell #1
+
+```
+rostopic list | grep controller
+```
+
+WebShell #1 Output
+
+```
+/moving_cube/inertia_wheel_roll_joint_velocity_controller/command
+/moving_cube/inertia_wheel_roll_joint_velocity_controller/pid/parameter_descriptions
+/moving_cube/inertia_wheel_roll_joint_velocity_controller/pid/parameter_updates
+/moving_cube/inertia_wheel_roll_joint_velocity_controller/state
+```
+
+So, as a *robot_name_space* you need to indicate **all the elements that appear before the name of the controllers**. In our case, we got the following topic:
+
+```
+/moving_cube/inertia_wheel_roll_joint_velocity_controller/command
+```
+
+And we got the name of the controller: *inertia_wheel_roll_joint_velocity_controller*
+
+Hence, what is before the controller name is:
+
+*/moving_cube*
+
+So the *robot_name_space* must be:
+
+```
+self.robot_name_space = "moving_cube"
+```
+
+Next step, we decide if we want to reset the controllers or not when a new episode starts. We recommend in general to do it because otherwise Gazebo can have strange behaviors::
+
+```
+reset_controls_bool = True
+```
+
+And finally, you pass it to the creation ***\*init\**** function:
+
+```
+super(MyCubeSingleDiskEnv, self).__init__(controllers_list=self.controllers_list,
+                                                robot_name_space=self.robot_name_space,
+                                                
+```
 
 
 
