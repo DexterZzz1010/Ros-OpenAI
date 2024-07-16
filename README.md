@@ -2088,9 +2088,7 @@ class MyRobotEnv(robot_gazebo_env.RobotGazeboEnv):
 
 Open the *my_cube_single_disk_env.py* file on the IDE and copy the following text inside:
 
-
-
-```
+```python
 #! /usr/bin/env python
 
 from openai_ros import robot_gazebo_env
