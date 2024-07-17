@@ -2351,7 +2351,7 @@ But before defining the *_check_all_systems_ready*, we have to return to the __i
 
 Modify the __init__ function of your class with the following code:
 
-#### 创建publisher和subscriber
+#### 修改init
 
 **但在定义 _check_all_systems_ready 之前，我们必须返回到 init 方法，并为 MyCubeSingleDiskEnv 创建所有的订阅者和发布者，以便 _check_all_systems_ready 能够工作。**
 
@@ -2406,6 +2406,8 @@ Modify the __init__ function of your class with the following code:
         self.gazebo.pauseSim()
 ```
 
+ 
+
 On the previous code, we create the **Subscribers** to the joint states and odometry of the robot. We also create a **Publisher** that will allow us to publish a command to the joint.
 
 However, the important part is the **unpauseSim()**, **_check_all_sensors_ready()**, and **unpauseSim()** calls. These are key to being able to reset the controllers and read the sensors. We use the objects created in the RobotGazeboEnv parent class so that we have access to it without having to know how it works.
@@ -2430,6 +2432,14 @@ We have to define the methods inside this class. Hence, add the following code t
 
 请注意，在这个 MyCubeSingleDiskEnv 中我们使用 _check_all_sensors_ready 是一个内部函数，而 RobotGazeboEnv 父类将调用 _check_all_systems_ready。我们也可以只使用一个函数，但它在这里被分开以显示谁使用哪个函数的区别。
 
+- **_check_all_sensors_ready**: 这是 `MyCubeSingleDiskEnv` 中定义的内部函数，专门用来检查机器人的所有传感器是否就绪。这个函数专注于验证机器人的传感器数据是否可用和准确，例如关节状态和里程计数据。
+
+- **_check_all_systems_ready**: 这个函数则在 `RobotGazeboEnv` 父类中调用，它通常用于检查仿真环境中所有系统（包括传感器、发布者和其他仿真组件）是否正常运行。这是一个更广泛的检查，确保整个仿真环境在进入下一个仿真周期之前是稳定的。
+
+**注意：_check_all_systems_ready只在MyCubeSingleDiskEnv 类中定义，并没有调用。**
+
+#### 定义_check_all_sensors_ready
+
 我们必须在这个类中定义方法。因此，请将以下代码添加到您的 MyCubeSingleDiskEnv 类中，作为类的成员（如果您不知道应该放在哪里，请检查上面的模板）。
 
 ```python
@@ -2438,7 +2448,7 @@ We have to define the methods inside this class. Hence, add the following code t
         Checks that all the sensors, publishers and other simulation systems are
         operational.
         """
-        self._check_all_sensors_ready()
+        self._check_all_sensors_ready() # 调用_check_all_sensors_ready
         self._check_publishers_connection()
         return True
 
@@ -2547,6 +2557,10 @@ Once we have this, we know that ROS can establish a connection to these topics a
 
 
 
+在 OneDiskCube 的案例中，对于传感器，我们只有告诉我们 Cube Body 在模拟世界中的位置（/moving_cube/odom）的里程计，以及通过 /moving_cube/joint_states 来了解碟形关节的（速度、位置、努力）情况。
+
+一旦我们拥有这些信息，我们就知道 ROS 可以建立与这些主题的连接，并且它们已经准备好了，因此我们现在可以声明订阅者。因此，让我们回到 **init** 方法，我们之前定义的订阅者如下：
+
 ```
 rospy.Subscriber("/moving_cube/joint_states", JointState, self._joints_callback)
 rospy.Subscriber("/moving_cube/odom", Odometry, self._odom_callback)
@@ -2554,7 +2568,7 @@ rospy.Subscriber("/moving_cube/odom", Odometry, self._odom_callback)
 
 Then, in order for those subscribers to work, we need to add the necessary imports that define the messages of the topics. Add the following lines at the beginning of your Python file:
 
-
+然后，为了使这些订阅者正常工作，我们需要在 Python 文件的开头添加定义这些主题消息的必要导入：
 
 ```
 import rospy
@@ -2562,11 +2576,15 @@ from sensor_msgs.msg import JointState
 from nav_msgs.msg import Odometry
 ```
 
+#### 定义回调函数
+
 Now, we also have to declare the topics callbacks, which will start to store the sensor data in **self.joints** and **self.odom** elements of the class. Those callbacks allow our Robot Environment class to have the most updated sensor data for the learning algorithms, even when we pause the simulation.
 
 Add the following code to the Python file as functions members of the class:
 
-In [ ]:
+现在，我们还必须声明主题回调，这些回调将开始将传感器数据存储在类的 self.joints 和 self.odom 元素中。这些回调使我们的机器人环境类能够拥有最新的传感器数据，供学习算法使用，即使我们暂停了仿真。
+
+将以下代码添加为类的成员函数：
 
 
 
@@ -2580,8 +2598,6 @@ In [ ]:
 
 For the publisher we have added the line:
 
-In [ ]:
-
 
 
 ```
@@ -2591,17 +2607,13 @@ self._roll_vel_pub = rospy.Publisher('/moving_cube/inertia_wheel_roll_joint_velo
 
 This also requires that we add the necessary imports at the beginning of the Python file. Add the following line:
 
-In [ ]:
-
-
-
 ```
 from std_msgs.msg import Float64
 ```
 
-And now we define the **_check_publishers_connection**, to check that our publisher is ready to receive the speed commands and doesn't lose any messages:
+#### 定义 _check_publishers_connection
 
-In [ ]:
+And now we define the **_check_publishers_connection**, to check that our publisher is ready to receive the speed commands and doesn't lose any messages:
 
 
 
@@ -2626,13 +2638,572 @@ In [ ]:
 
 
 
+### Step 4- Definition of functions that will be called by the TaskEnv to sense/actuate the robot
+
+#### 定义move_joints函数
+
+And now we have to define a function that will move the disks, publishing in our **self._roll_vel_pub** publisher.
+
+Let's call this function **move_joints()**. Why? Because... yes! Seriously, you can provide to this function whatever the name you want. But. You must remember its name because you will need it in the Task Environment in order to send a command to the robot.
+
+Also, you must define which parameters your function is going to need. You can decide that here by deciding which type of actuation are you going to allow the RL algorithms to take. In our case, we allow the RL to provide a **rolling speed** (of the internal motor of the robot).
+
+Just for clarity, we have divided the **move_joints()** function into two parts, one of the parts being implemented by the additional function **wait_until_roll_is_in_vel()**.
+
+**FINAL NOTE:** The *move_joints()* method will be used internally in **MyCubeSingleDiskEnv** and also in the **Task Environment**.
+
+Add the following code to your Robot Environment Python file. The functions are too members of the class:
 
 
 
+现在我们需要定义一个函数，用来移动圆盘，通过我们的 `self._roll_vel_pub` 发布器发布命令。
+
+我们将这个函数命名为 `move_joints()`。你可以给这个函数取任何你喜欢的名字，但是必须记住它的名称，因为你需要在 Task Environment 中使用它来向机器人发送命令。
+
+你还需要定义这个函数需要哪些参数。你可以在这里决定你将允许 RL 算法采取哪种类型的动作。在我们的案例中，我们允许 RL 提供一个内部电机的滚动速度。
+
+为了清晰起见，我们将 `move_joints()` 函数分为两部分，其中一个部分由额外的函数 `wait_until_roll_is_in_vel()` 实现。
+
+**最后注意：`move_joints()` 方法将在 MyCubeSingleDiskEnv 内部使用，并且也会在 Task Environment 中使用。**
+
+将以下代码添加到你的机器人环境 Python 文件中。这些函数也是类的成员：
 
 
 
+```python
+    # Methods that the TaskEnvironment will need.
+    # ----------------------------
+    
+    def move_joints(self, roll_speed):
+        joint_speed_value = Float64()
+        joint_speed_value.data = roll_speed
+        rospy.logdebug("Single Disk Roll Velocity>>" + str(joint_speed_value))
+        self._roll_vel_pub.publish(joint_speed_value)
+        self.wait_until_roll_is_in_vel(joint_speed_value.data)
+    
+    def wait_until_roll_is_in_vel(self, velocity):
+        '''
+        description: 等待直到轮子的速度达到指定的速度范围。这个方法通过不断检查当前速度与目标速度的差异，并等待直到速度进入允许的误差范围内。
+        param {*} self
+        param {float} velocity 目标速度
+        return {float} 实际等待的时间（秒）
+        '''
 
+        # 设置ROS的循环速率为每秒10次
+        rate = rospy.Rate(10)
+
+        # 记录开始等待的时间
+        start_wait_time = rospy.get_rostime().to_sec()
+        end_wait_time = 0.0
+
+        # 设置误差范围，允许的速度误差为±0.1
+        epsilon = 0.1
+        v_plus = velocity + epsilon
+        v_minus = velocity - epsilon
+
+        # 循环直到ROS节点关闭或速度达标
+        while not rospy.is_shutdown():
+            # 检查关节状态是否准备好，并获取当前速度
+            joint_data = self._check_joint_states_ready()
+            roll_vel = joint_data.velocity[0]
+            rospy.logdebug("VEL=" + str(roll_vel) + ", ?RANGE=[" + str(v_minus) + ","+str(v_plus)+"]")
+
+            # 判断当前速度是否在目标速度的误差范围内
+            are_close = (roll_vel <= v_plus) and (roll_vel > v_minus)
+
+            if are_close:
+                rospy.logdebug("Reached Velocity!")
+                # 记录达到目标速度的时间
+                end_wait_time = rospy.get_rostime().to_sec()
+                break
+
+            # 如果未达到目标速度，继续等待
+            rospy.logdebug("Not there yet, keep waiting...")
+            rate.sleep()
+
+        # 计算总等待时间
+        delta_time = end_wait_time - start_wait_time
+        rospy.logdebug("[Wait Time=" + str(delta_time)+"]")
+
+        return delta_time
+
+```
+
+It essentially gets a given roll speed and publishes that speed through the ROS publisher **self._roll_vel_pub**. The last part is also vital because it guarantees that all the actions are executed and aren't overrun by the next one. This is the method **wait_until_roll_is_in_vel**. This method will wait until the roll disk wheel reaches the desired speed, with a certain error.
+
+In the same line we have defined the move_joints() function to actuate the robot, we must provide a function (or series of them) to allow the Task Environment to get the sensor values and compose an observation for the RL algorithm.
+
+For this case, we decided to provide two functions:
+
+- **get_joints()**: returns the status of the joints of the robot
+- **get_odom()**: returns the current odometry.
+
+For the sake of simplicity and robustness, the functions are going to provide the raw message obtained from the topics, without any specific processing of the sensed data. Hence, the Task Environment, when it calls those functions, it will have to handle how to extract from the message the data it requires for the training.
+
+Add the following two functions to the class:
+
+
+
+这些函数基本上获取一个给定的滚动速度，并通过 ROS 发布器 `self._roll_vel_pub` 发布该速度。最后部分也很重要，因为它确保所有操作都被执行，并且不会被下一个操作覆盖。这是 `wait_until_roll_is_in_vel` 方法的功能。这个方法将等待直到圆盘轮达到所需速度，有一定的误差。
+
+就像我们定义 `move_joints()` 函数操控机器人一样，我们必须提供一个函数（或一系列函数）来允许 Task Environment 获取传感器值并为 RL 算法组成一个观察。
+
+在这种情况下，我们决定提供两个函数：
+
+- `get_joints()`: 返回机器人关节的状态
+- `get_odom()`: 返回当前的里程计数据
+
+为了简单和鲁棒性，这些函数将提供从主题获取的原始消息，没有对感测数据进行任何特定处理。因此，当 Task Environment 调用这些函数时，它需要处理如何从消息中提取训练所需的数据。
+
+将以下两个函数添加到类中：
+
+
+
+```
+    def get_joints(self):
+        return self.joints
+
+    def get_odom(self):
+        return self.odom
+```
+
+Finally, add the next import at the top of the Python file:
+
+```
+import numpy
+```
+
+### Step 5- Virtual definition of methods that the Task Environment will need to define
+
+These methods are basically virtual methods that will be called by the **RobotGazeboEnv** and by the **MyCubeSingleDiskEnv**. However, those methods have to be implemented upstream in the **TaskEnvironment**. This is required because these methods relate to how the Task is to be learned.
+
+Summarizing, even if we define the methods here, they have to be implemented at the task level.
+
+You can add the following code to your class, exactly as it is below.
+
+
+
+这些方法基本上是虚拟方法，将由 RobotGazeboEnv 和 MyCubeSingleDiskEnv 调用。然而，这些方法必须在 TaskEnvironment 中上游实现。这是必需的，因为这些方法与如何学习任务相关。
+
+总结一下，即使我们在这里定义了这些方法，它们也必须在任务级别实现。
+
+你可以将以下代码添加到你的类中，就像下面这样：
+
+
+
+```python
+    # Methods that the TaskEnvironment will need to define here as virtual
+    # because they will be used in RobotGazeboEnv GrandParentClass and defined in the
+    # TaskEnvironment.
+    # ----------------------------
+    def _set_init_pose(self):
+        """Sets the Robot in its init pose
+        """
+        raise NotImplementedError()
+    
+    def _init_env_variables(self):
+        """Inits variables needed to be initialised each time we reset at the start
+        of an episode.
+        """
+        raise NotImplementedError()
+
+    def _compute_reward(self, observations, done):
+        """Calculates the reward to give based on the observations given.
+        """
+        raise NotImplementedError()
+
+    def _set_action(self, action):
+        """Applies the given action to the simulation.
+        """
+        raise NotImplementedError()
+
+    def _get_obs(self):
+        raise NotImplementedError()
+
+    def _is_done(self, observations):
+        """Checks if episode done based on observations given.
+        """
+        raise NotImplementedError()
+```
+
+### Final Result
+
+If you have followed the instructions below, at the end, you should have the following Python code:
+
+```python
+#! /usr/bin/env python
+
+import numpy
+import rospy
+from openai_ros import robot_gazebo_env
+from std_msgs.msg import Float64
+from sensor_msgs.msg import JointState
+from nav_msgs.msg import Odometry
+
+
+
+class MyCubeSingleDiskEnv(robot_gazebo_env.RobotGazeboEnv):
+    """Superclass for all CubeSingleDisk environments.
+    """
+
+    def __init__(self):
+        """Initializes a new CubeSingleDisk environment.
+
+        Args:
+        """
+        # Variables that we give through the constructor.
+        # None in this case
+
+        # Internal Vars
+        self.controllers_list = ['joint_state_controller',
+                                 'inertia_wheel_roll_joint_velocity_controller'
+                                 ]
+
+        self.robot_name_space = "moving_cube"
+
+        # We launch the init function of the Parent Class robot_gazebo_env.RobotGazeboEnv
+        super(MyCubeSingleDiskEnv, self).__init__(controllers_list=self.controllers_list,
+                                                robot_name_space=self.robot_name_space,
+                                                reset_controls=True)
+
+
+
+        """
+        To check any topic we need to have the simulations running, we need to do two things:
+        1) Unpause the simulation: without that th stream of data doesnt flow. This is for simulations
+        that are pause for whatever the reason
+        2) If the simulation was running already for some reason, we need to reset the controlers.
+        This has to do with the fact that some plugins with tf, dont understand the reset of the simulation
+        and need to be reseted to work properly.
+        """
+        self.gazebo.unpauseSim()
+        self.controllers_object.reset_controllers()
+        self._check_all_sensors_ready()
+
+        # We Start all the ROS related Subscribers and publishers
+        rospy.Subscriber("/moving_cube/joint_states", JointState, self._joints_callback)
+        rospy.Subscriber("/moving_cube/odom", Odometry, self._odom_callback)
+
+        self._roll_vel_pub = rospy.Publisher('/moving_cube/inertia_wheel_roll_joint_velocity_controller/command',
+                                             Float64, queue_size=1)
+
+        self._check_publishers_connection()
+
+        self.gazebo.pauseSim()
+
+    # Methods needed by the RobotGazeboEnv
+    # ----------------------------
+    
+
+    def _check_all_systems_ready(self):
+        """
+        Checks that all the sensors, publishers and other simulation systems are
+        operational.
+        """
+        self._check_all_sensors_ready()
+        return True
+
+
+    # CubeSingleDiskEnv virtual methods
+    # ----------------------------
+
+    def _check_all_sensors_ready(self):
+        self._check_joint_states_ready()
+        self._check_odom_ready()
+        rospy.logdebug("ALL SENSORS READY")
+
+    def _check_joint_states_ready(self):
+        self.joints = None
+        while self.joints is None and not rospy.is_shutdown():
+            try:
+                self.joints = rospy.wait_for_message("/moving_cube/joint_states", JointState, timeout=1.0)
+                rospy.logdebug("Current moving_cube/joint_states READY=>" + str(self.joints))
+
+            except:
+                rospy.logerr("Current moving_cube/joint_states not ready yet, retrying for getting joint_states")
+        return self.joints
+
+    def _check_odom_ready(self):
+        self.odom = None
+        while self.odom is None and not rospy.is_shutdown():
+            try:
+                self.odom = rospy.wait_for_message("/moving_cube/odom", Odometry, timeout=1.0)
+                rospy.logdebug("Current /moving_cube/odom READY=>" + str(self.odom))
+
+            except:
+                rospy.logerr("Current /moving_cube/odom not ready yet, retrying for getting odom")
+
+        return self.odom
+        
+    def _joints_callback(self, data):
+        self.joints = data
+    
+    def _odom_callback(self, data):
+        self.odom = data
+        
+    def _check_publishers_connection(self):
+        """
+        Checks that all the publishers are working
+        :return:
+        """
+        rate = rospy.Rate(10)  # 10hz
+        while self._roll_vel_pub.get_num_connections() == 0 and not rospy.is_shutdown():
+            rospy.logdebug("No susbribers to _roll_vel_pub yet so we wait and try again")
+            try:
+                rate.sleep()
+            except rospy.ROSInterruptException:
+                # This is to avoid error when world is rested, time when backwards.
+                pass
+        rospy.logdebug("_roll_vel_pub Publisher Connected")
+
+        rospy.logdebug("All Publishers READY")
+    
+    # Methods that the TaskEnvironment will need to define here as virtual
+    # because they will be used in RobotGazeboEnv GrandParentClass and defined in the
+    # TaskEnvironment.
+    # ----------------------------
+    def _set_init_pose(self):
+        """Sets the Robot in its init pose
+        """
+        raise NotImplementedError()
+    
+    def _init_env_variables(self):
+        """Inits variables needed to be initialised each time we reset at the start
+        of an episode.
+        """
+        raise NotImplementedError()
+
+    def _compute_reward(self, observations, done):
+        """Calculates the reward to give based on the observations given.
+        """
+        raise NotImplementedError()
+
+    def _set_action(self, action):
+        """Applies the given action to the simulation.
+        """
+        raise NotImplementedError()
+
+    def _get_obs(self):
+        raise NotImplementedError()
+
+    def _is_done(self, observations):
+        """Checks if episode done based on observations given.
+        """
+        raise NotImplementedError()
+        
+    # Methods that the TaskEnvironment will need.
+    # ----------------------------
+    def move_joints(self, roll_speed):
+        joint_speed_value = Float64()
+        joint_speed_value.data = roll_speed
+        rospy.logdebug("Single Disk Roll Velocity>>" + str(joint_speed_value))
+        self._roll_vel_pub.publish(joint_speed_value)
+        self.wait_until_roll_is_in_vel(joint_speed_value.data)
+    
+    def wait_until_roll_is_in_vel(self, velocity):
+    
+        rate = rospy.Rate(10)
+        start_wait_time = rospy.get_rostime().to_sec()
+        end_wait_time = 0.0
+        epsilon = 0.1
+        v_plus = velocity + epsilon
+        v_minus = velocity - epsilon
+        while not rospy.is_shutdown():
+            joint_data = self._check_joint_states_ready()
+            roll_vel = joint_data.velocity[0]
+            rospy.logdebug("VEL=" + str(roll_vel) + ", ?RANGE=[" + str(v_minus) + ","+str(v_plus)+"]")
+            are_close = (roll_vel <= v_plus) and (roll_vel > v_minus)
+            if are_close:
+                rospy.logdebug("Reached Velocity!")
+                end_wait_time = rospy.get_rostime().to_sec()
+                break
+            rospy.logdebug("Not there yet, keep waiting...")
+            rate.sleep()
+        delta_time = end_wait_time- start_wait_time
+        rospy.logdebug("[Wait Time=" + str(delta_time)+"]")
+        return delta_time
+        
+
+    def get_joints(self):
+        return self.joints
+    
+    def get_odom(self):
+        return self.odom
+```
+
+
+
+```python
+class MyCubeSingleDiskEnv(robot_gazebo_env.RobotGazeboEnv):
+    '''
+    description: 超类为所有单盘Cube环境，提供与Gazebo仿真的交互。
+    name: MyCubeSingleDiskEnv
+    '''
+
+    def __init__(self):
+        '''
+        description: 初始化一个新的单盘Cube环境，配置控制器、订阅器和发布器。
+        param {*} self
+        return {*}
+        '''
+        # 内部变量定义
+        self.controllers_list = ['joint_state_controller', 'inertia_wheel_roll_joint_velocity_controller']
+        self.robot_name_space = "moving_cube"
+        super(MyCubeSingleDiskEnv, self).__init__(controllers_list=self.controllers_list,
+                                                  robot_name_space=self.robot_name_space,
+                                                  reset_controls=True)
+        self.gazebo.unpauseSim()
+        self.controllers_object.reset_controllers()
+        self._check_all_sensors_ready()
+        rospy.Subscriber("/moving_cube/joint_states", JointState, self._joints_callback)
+        rospy.Subscriber("/moving_cube/odom", Odometry, self._odom_callback)
+        self._roll_vel_pub = rospy.Publisher('/moving_cube/inertia_wheel_roll_joint_velocity_controller/command',
+                                             Float64, queue_size=1)
+        self._check_publishers_connection()
+        self.gazebo.pauseSim()
+
+    def _check_all_systems_ready(self):
+        '''
+        description: 检查所有系统（传感器、发布者等）是否已就绪。
+        param {*} self
+        return {bool} 所有系统检查是否通过。
+        '''
+        self._check_all_sensors_ready()
+        return True
+
+    def _check_all_sensors_ready(self):
+        '''
+        description: 检查所有关键传感器是否已准备就绪。
+        param {*} self
+        return {*}
+        '''
+        self._check_joint_states_ready()
+        self._check_odom_ready()
+        rospy.logdebug("ALL SENSORS READY")
+
+    def _check_joint_states_ready(self):
+        '''
+        description: 检查关节状态是否已就绪。
+        param {*} self
+        return {*} 最新的关节状态数据。
+        '''
+        self.joints = None
+        while self.joints is None and not rospy.is_shutdown():
+            try:
+                self.joints = rospy.wait_for_message("/moving_cube/joint_states", JointState, timeout=1.0)
+                rospy.logdebug("Current moving_cube/joint_states READY=>" + str(self.joints))
+            except:
+                rospy.logerr("Current moving_cube/joint_states not ready yet, retrying for getting joint_states")
+        return self.joints
+
+    def _check_odom_ready(self):
+        '''
+        description: 检查里程计数据是否已就绪。
+        param {*} self
+        return {*} 最新的里程计数据。
+        '''
+        self.odom = None
+        while self.odom is None and not rospy.is_shutdown():
+            try:
+                self.odom = rospy.wait_for_message("/moving_cube/odom", Odometry, timeout=1.0)
+                rospy.logdebug("Current /moving_cube/odom READY=>" + str(self.odom))
+            except:
+                rospy.logerr("Current /moving_cube/odom not ready yet, retrying for getting odom")
+        return self.odom
+
+    def _joints_callback(self, data):
+        '''
+        description: 更新类内部的关节状态数据。
+        param {*} self
+        param {*} data 从ROS主题接收的关节数据
+        return {*}
+        '''
+        self.joints = data
+
+    def _odom_callback(self, data):
+        '''
+        description: 更新类内部的里程计数据。
+        param {*} self
+        param {*} data 从ROS主题接收的里程计数据
+        return {*}
+        '''
+        self.odom = data
+
+    def _check_publishers_connection(self):
+        '''
+        description: 确保所有发布者都已连接。
+        param {*} self
+        return {*}
+        '''
+        rate = rospy.Rate(10)  # 10hz
+        while self._roll_vel_pub.get_num_connections() == 0 and not rospy.is_shutdown():
+            rospy.logdebug("No subscribers to _roll_vel_pub yet so we wait and try again")
+            try:
+                rate.sleep()
+            except rospy.ROSInterruptException:
+                pass
+        rospy.logdebug("_roll_vel_pub Publisher Connected")
+        rospy.logdebug("All Publishers READY")
+
+    # 确保包含后续环境和任务环境所需的方法
+    # 这些方法在 TaskEnvironment 中必须具体实现
+    def _set_init_pose(self):
+        '''
+        description: 设置机器人的初始姿态。此方法需要在TaskEnvironment中具体实现。
+        param {*} self
+        raise {NotImplementedError}
+        '''
+        raise NotImplementedError()
+
+    def _init_env_variables(self):
+        '''
+        description: 每次重置仿真开始时初始化变量。此方法需要在TaskEnvironment中具体实现。
+        param {*} self
+        raise {NotImplementedError}
+        '''
+        raise NotImplementedError()
+
+    def _compute_reward(self, observations, done):
+        '''
+        description: 根据给定的观测计算奖励。此方法需要在TaskEnvironment中具体实现。
+        param {*} self
+        param {*} observations 观测数据
+        param {*} done 是否完成
+        raise {NotImplementedError}
+        '''
+        raise NotImplementedError()
+
+    def _set_action(self, action):
+        '''
+        description: 将给定的动作应用于仿真。此方法需要在TaskEnvironment中具体实现。
+        param {*} self
+        param {*} action 执行的动作
+        raise {NotImplementedError}
+        '''
+        raise NotImplementedError()
+
+    def _get_obs(self):
+        '''
+        description: 获取观察结果。此方法需要在TaskEnvironment中具体实现。
+        param {*} self
+        raise {NotImplementedError}
+        '''
+        raise NotImplementedError()
+
+    def _is_done(self, observations):
+        '''
+        description: 根据给定的观察结果检查仿真是否结束。此方法需要在TaskEnvironment中具体实现。
+        param {*} self
+        param {*} observations 观察结果
+        raise {NotImplementedError}
+        '''
+        raise NotImplementedError()
+
+```
+
+
+
+**NEXT STEP: How to create the One Disk Moving Cube Learning env for walking on the Y-axis.**
 
 
 
