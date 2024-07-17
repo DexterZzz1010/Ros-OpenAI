@@ -2020,6 +2020,15 @@ You can see here that the template is divided into four parts:
 
 
 
+您可以看到这个模板被分为四个部分：
+
+1. 机器人环境类的初始化（在上面的例子中是 **MyRobotEnv**）。它继承自 *RobotGazeboEnv*。
+2. 定义 Gazebo 环境所需的虚拟方法，这些方法在 *RobotGazeboEnv* 内被声明为虚拟方法。
+3. 虚拟定义那些任务环境需要在此处定义为虚拟的方法，因为它们将在 RobotGazeboEnv 的父类中使用，并在任务环境中具体定义。
+4. 定义任务环境需要从该类中使用的方法。
+
+
+
 ```python
 from openai_ros import robot_gazebo_env
 
@@ -2149,17 +2158,33 @@ As you can see, we just took the first lines of the template above and modified 
 
 Here we import the **robot_gazebo_env** from the python module folder openai_ros. Inside **robot_gazebo_env**, we find the class **RobotGazeboEnv**. In the class definition of **MyCubeSingleDiskEnv**, we give inheritance to **robot_gazebo_env.RobotGazeboEnv**. That means to look for the python module file **robot_gazebo_env**, and inside, get the class **RobotGazeboEnv**.
 
-```
+#### 继承RobotGazeboEnv类
+
+之前的代码中,我们创建了Cubli机器人环境的类。我们把这个类命名为:MyCubeSingleDiskEnv。
+
+可以看到,我们只取了上面的模板的前几行,并对其进行了一些修改,以适应Cubli机器人。让我们来回顾一下:
+
+这里我们从python模块文件夹openai_ros中导入了robot_gazebo_env。在robot_gazebo_env中,我们可以找到RobotGazeboEnv这个类。在MyCubeSingleDiskEnv类定义中,我们给予它继承自robot_gazebo_env.RobotGazeboEnv。这意味着查找python模块文件robot_gazebo_env,在里面找到RobotGazeboEnv这个类。
+
+```python
 from openai_ros import robot_gazebo_env
 
 class MyCubeSingleDiskEnv(robot_gazebo_env.RobotGazeboEnv):
 ```
 
+#### 添加环境变量
+
 Then, we add a variable in the init function. These variables are the ones you want the **Task Environment** to pass to this new Robot Environment. We need it to pass the speed at the start of each episode to set the roll disk. For this scenario, it will most likely always be **0.0**, but it could change depending on the **Task Environment**.
 
 How to decide which variables will be required?... well it depends on how good you know the robot and what will be required from it.
 
-```
+然后,我们在init函数中添加了一个变量。这些变量就是你想任务环境传递给这个新机器人环境的变量。我们需要它在每个回合开始时传递速度,以设置滚动盘。在这个场景中,它很可能始终是0.0,但取决于任务环境,它可能会变化。
+
+如何决定需要哪些变量?...嗯,这要视乎你对机器人的了解程度以及从它所需要的程度而定。
+
+
+
+```python
 def __init__(self, init_roll_vel):
     # Variables that we give through the constructor.
     self.init_roll_vel = init_roll_vel
@@ -2173,6 +2198,19 @@ In order to know the list of controllers for a given robot you have two differen
 2. We can get a list of the controllers available in a simulation by calling the service that provides the list of controllers.
 
 Let's use the last option to the Cubli simulation.
+
+#### 获取机器人控制器列表
+
+现在,我们定义了一些需要传递给RobotGazeboEnv超级构造函数init的变量。这些变量是:controllers_list、robot_name_space和reset_controls。这些变量被RobotGazeboEnv用于知道在每个学习回合开始时需要重置哪些控制器。那些变量对于任何要解决的openai_ros问题来说都是强制需要的。
+
+为了了解一个给定机器人的控制器列表,有两个不同的选择:
+
+1. 检查模拟的启动文件,并找出加载的控制器。
+2. 我们可以通过调用提供控制器列表的服务,获取一个模拟中可用控制器的列表。
+
+我们使用后一种方法获取Cubli模拟的控制器列表。
+
+
 
 Execute in WebShell #1
 
@@ -2221,6 +2259,8 @@ Hence, the list of controllers in the __init__ function should look something li
 self.controllers_list = ['joint_state_controller','inertia_wheel_roll_joint_velocity_controller']
 ```
 
+#### 获取robot_name_space
+
 Next, to get the **namespace used in the controllers**, just execute the following command to see all the controllers' namespace:
 
 Execute in WebShell #1
@@ -2240,15 +2280,17 @@ WebShell #1 Output
 
 So, as a *robot_name_space* you need to indicate **all the elements that appear before the name of the controllers**. In our case, we got the following topic:
 
+因此，作为机器人名称空间，您需要指示出现在控制器名称之前的所有元素。在我们的例子中，我们得到了以下主题
+
 ```
 /moving_cube/inertia_wheel_roll_joint_velocity_controller/command
 ```
 
 And we got the name of the controller: *inertia_wheel_roll_joint_velocity_controller*
 
-Hence, what is before the controller name is:
+Hence, what is before the controller name is: */moving_cube*
 
-*/moving_cube*
+**robot_name_space是controller 之前的名字**
 
 So the *robot_name_space* must be:
 
@@ -2270,7 +2312,317 @@ super(MyCubeSingleDiskEnv, self).__init__(controllers_list=self.controllers_list
                                                 
 ```
 
+### Step 3- Definition of the Virtual Methods needed by the RobotGazeboEnv
 
+#### 定义_check_all_systems_ready
+
+As we indicated in the previous unit, the RobotGazeboEnv has a virtual function that needs to be defined by the Robot Environment, because it has access to the robot ROS topics, in order to get the information from it.
+
+We need ot define the following function:
+
+- _check_all_systems_ready ()
+
+The first function we need to define is the **_check_all_systems_ready**. This function checks that all the sensors, publishers and other simulation systems are operational. This function will be **called by the Gazebo Environment during the reseting of the simulation**. Since sometimes the simulations have strange behaviors, we need to ensure with this function that everything is running before we continue with the next episode.
+
+定义 RobotGazeboEnv 所需的虚拟方法。
+
+正如上一单元所述，RobotGazeboEnv 有一个虚拟函数需要由机器人环境定义，因为它需要访问机器人的 ROS 主题以获取信息。
+
+我们需要定义以下功能：
+
+- __check_all_systems_ready()_
+
+-  _check_all_systems_ready()
+
+_我们需要定义的第一个功能是 --_check_all_systems_ready。这个函数检查所有的传感器、发布者和其他仿真系统是否运行正常。此函数将在仿真重置期间由 Gazebo 环境调用。由于有时仿真可能会表现出异常行为，我们需要使用这个函数来确保在继续下一个情节之前一切都在运行。
+
+```python
+def _check_all_systems_ready(self):
+    """
+    Checks that all the sensors, publishers and other simulation systems are
+    operational.
+    检查所有的传感器、发布者和其他仿真系统是否运行正常。
+    """
+    # TODO
+    return True
+```
+
+But before defining the *_check_all_systems_ready*, we have to return to the __init__ method and create all the subscribers and publishers for the *MyCubeSingleDiskEnv* so that the *check_all_systems_ready* can work.
+
+Modify the __init__ function of your class with the following code:
+
+#### 创建publisher和subscriber
+
+**但在定义 _check_all_systems_ready 之前，我们必须返回到 init 方法，并为 MyCubeSingleDiskEnv 创建所有的订阅者和发布者，以便 _check_all_systems_ready 能够工作。**
+
+修改您的类的 **init** 函数，使用以下代码：
+
+```python
+    def __init__(self, init_roll_vel):
+        """Initializes a new CubeSingleDisk environment.
+        """
+        # Variables that we give through the constructor.
+        self.init_roll_vel = init_roll_vel
+
+        self.controllers_list = ['joint_state_controller',
+                                 'inertia_wheel_roll_joint_velocity_controller'
+                                 ]
+
+        self.robot_name_space = "moving_cube"
+
+        reset_controls_bool = True
+        
+        # We launch the init function of the Parent Class robot_gazebo_env.RobotGazeboEnv
+        super(MyCubeSingleDiskEnv, self).__init__(controllers_list=self.controllers_list,
+                                                robot_name_space=self.robot_name_space,
+                                                reset_controls=reset_controls_bool)
+
+
+        """
+        To check any topic we need to have the simulations running, we need to do two things:
+        1) Unpause the simulation: without that the stream of data doesn't flow. This is for simulations
+        that are pause for whatever reason
+        2) If the simulation was running already for some reason, we need to reset the controllers.
+        This has to do with the fact that some plugins with tf don't understand the reset of the simulation
+        and need to be reset to work properly.
+        """
+    # 为了检查任何主题，我们需要运行仿真，我们需要做两件事：
+    # 1) 取消仿真的暂停：没有这个数据流就不会流动。这适用于出于任何原因而暂停的仿真
+    # 2) 如果出于某种原因仿真已经在运行，我们需要重置控制器。这与一些插件不理解仿真的重置有关，
+    #    需要重置以正常工作。
+        self.gazebo.unpauseSim()
+        self.controllers_object.reset_controllers()
+        self._check_all_sensors_ready()
+
+        # We Start all the ROS related Subscribers and publishers
+        rospy.Subscriber("/moving_cube/joint_states", JointState, self._joints_callback)
+        rospy.Subscriber("/moving_cube/odom", Odometry, self._odom_callback)
+
+        self._roll_vel_pub = rospy.Publisher('/moving_cube/inertia_wheel_roll_joint_velocity_controller/command',
+                                             Float64, queue_size=1)
+
+        self._check_publishers_connection()
+
+        self.gazebo.pauseSim()
+```
+
+On the previous code, we create the **Subscribers** to the joint states and odometry of the robot. We also create a **Publisher** that will allow us to publish a command to the joint.
+
+However, the important part is the **unpauseSim()**, **_check_all_sensors_ready()**, and **unpauseSim()** calls. These are key to being able to reset the controllers and read the sensors. We use the objects created in the RobotGazeboEnv parent class so that we have access to it without having to know how it works.
+
+在先前的代码中，我们创建了机器人的关节状态和里程计的订阅者。我们还创建了一个发布者，将允许我们向关节发布命令。
+
+然而，重要的部分是 unpauseSim(), _check_all_sensors_ready(), 和 unpauseSim() 的调用。这些是能够重置控制器和读取传感器的关键。我们使用 RobotGazeboEnv 父类中创建的对象，因此我们可以访问它而不必了解它是如何工作的。
+
+```python
+self.gazebo.unpauseSim()
+self.controllers_object.reset_controllers()
+self._check_all_sensors_ready()
+```
+
+On the previous code, first we unpause the simulation (required to reset it). Then, we reset the controllers and make the first test to see if the sensors are working. Checking all this is key for AI learning because we need a reliable sensor and controller communication.
+
+**Note** that inside this **MyCubeSingleDiskEnv** we use **_check_all_sensors_ready** which is an internal function, while the **RobotGazeboEnv** parent class will call the **_check_all_systems_ready**. We could also just use one function, but it is separeted here to show the diference in who uses which function.
+
+We have to define the methods inside this class. Hence, add the following code to your MyCubeSingleDiskEnv class, as members of the class (check the template above if you don't know where to put this code).
+
+在先前的代码中，我们首先取消仿真的暂停（重置所需）。然后，我们重置控制器并进行第一次测试以查看传感器是否工作。检查所有这些对于 AI 学习至关重要，因为我们需要可靠的传感器和控制器通信。
+
+请注意，在这个 MyCubeSingleDiskEnv 中我们使用 _check_all_sensors_ready 是一个内部函数，而 RobotGazeboEnv 父类将调用 _check_all_systems_ready。我们也可以只使用一个函数，但它在这里被分开以显示谁使用哪个函数的区别。
+
+我们必须在这个类中定义方法。因此，请将以下代码添加到您的 MyCubeSingleDiskEnv 类中，作为类的成员（如果您不知道应该放在哪里，请检查上面的模板）。
+
+```python
+    def _check_all_systems_ready(self):
+        """
+        Checks that all the sensors, publishers and other simulation systems are
+        operational.
+        """
+        self._check_all_sensors_ready()
+        self._check_publishers_connection()
+        return True
+
+
+    # CubeSingleDiskEnv virtual methods
+    # ----------------------------
+
+    def _check_all_sensors_ready(self):
+        self._check_joint_states_ready()
+        self._check_odom_ready()
+        rospy.logdebug("ALL SENSORS READY")
+
+    def _check_joint_states_ready(self):
+        self.joints = None
+        while self.joints is None and not rospy.is_shutdown():
+            try:
+                self.joints = rospy.wait_for_message("/moving_cube/joint_states", JointState, timeout=1.0)
+                rospy.logdebug("Current moving_cube/joint_states READY=>" + str(self.joints))
+
+            except:
+                rospy.logerr("Current moving_cube/joint_states not ready yet, retrying for getting joint_states")
+        return self.joints
+
+    def _check_odom_ready(self):
+        self.odom = None
+        while self.odom is None and not rospy.is_shutdown():
+            try:
+                self.odom = rospy.wait_for_message("/moving_cube/odom", Odometry, timeout=1.0)
+                rospy.logdebug("Current /moving_cube/odom READY=>" + str(self.odom))
+
+            except:
+                rospy.logerr("Current /moving_cube/odom not ready yet, retrying for getting odom")
+
+        return self.odom
+```
+
+```python
+class MyCubeSingleDiskEnv:
+    def _check_all_systems_ready(self):
+        """
+        检查所有传感器、发布者和其他仿真系统是否运行正常。
+        此函数整合调用检查传感器和发布者连接状态的函数，确保所有系统在开始下一步操作前都处于可操作状态。
+
+        返回:
+        - True: 表示所有系统检查完毕且无异常，仿真环境准备就绪。
+        """
+        self._check_all_sensors_ready()  # 检查所有传感器是否就绪
+        self._check_publishers_connection()  # 检查所有发布者连接是否正常
+        return True
+
+    def _check_all_sensors_ready(self):
+        """
+        检查所有传感器是否就绪。
+        此函数调用检查特定传感器（关节状态和里程计）的函数，用于确认这些关键传感器数据可以正常接收。
+
+        输出:
+        日志信息，显示所有传感器就绪的状态。
+        """
+        self._check_joint_states_ready()  # 检查关节状态传感器
+        self._check_odom_ready()  # 检查里程计传感器
+        rospy.logdebug("ALL SENSORS READY")  # 输出所有传感器就绪的日志
+
+    def _check_joint_states_ready(self):
+        """
+        检查关节状态传感器是否就绪。
+        这个函数循环等待直到从指定的 ROS 话题接收到关节状态信息。
+
+        返回:
+        - self.joints: 接收到的关节状态信息
+        """
+        self.joints = None  # 初始化关节状态为空
+        while self.joints is None and not rospy.is_shutdown():
+            try:
+                # 等待并获取关节状态信息
+                self.joints = rospy.wait_for_message("/moving_cube/joint_states", JointState, timeout=1.0)
+                rospy.logdebug("Current moving_cube/joint_states READY=>" + str(self.joints))  # 输出关节状态就绪日志
+            except:
+                # 如果在指定时间内没有接收到信息，输出错误日志并再次尝试
+                rospy.logerr("Current moving_cube/joint_states not ready yet, retrying for getting joint_states")
+        return self.joints  # 返回关节状态信息
+
+    def _check_odom_ready(self):
+        """
+        检查里程计传感器是否就绪。
+        循环等待直到从指定的 ROS 话题接收到里程计信息。
+
+        返回:
+        - self.odom: 接收到的里程计信息
+        """
+        self.odom = None  # 初始化里程计数据为空
+        while self.odom is None and not rospy.is_shutdown():
+            try:
+                # 等待并获取里程计信息
+                self.odom = rospy.wait_for_message("/moving_cube/odom", Odometry, timeout=1.0)
+                rospy.logdebug("Current /moving_cube/odom READY=>" + str(self.odom))  # 输出里程计就绪日志
+            except:
+                # 如果在指定时间内没有接收到信息，输出错误日志并再次尝试
+                rospy.logerr("Current /moving_cube/odom not ready yet, retrying for getting odom")
+        return self.odom  # 返回里程计信息
+
+```
+
+In the case of the OneDiskCube, for sensors, we only have the **odometry** that tells us where the Cube Body is in the simulated world (**/moving_cube/odom**), and how the **disk joint** is (speed, position, efforts) through the **/moving_cube/joint_states**.
+
+Once we have this, we know that ROS can establish a connection to these topics and they're ready, so we can declare the susbcribers now. So, let's go back to the __init__ method, we had defined the subscribers as follows:
+
+
+
+```
+rospy.Subscriber("/moving_cube/joint_states", JointState, self._joints_callback)
+rospy.Subscriber("/moving_cube/odom", Odometry, self._odom_callback)
+```
+
+Then, in order for those subscribers to work, we need to add the necessary imports that define the messages of the topics. Add the following lines at the beginning of your Python file:
+
+
+
+```
+import rospy
+from sensor_msgs.msg import JointState
+from nav_msgs.msg import Odometry
+```
+
+Now, we also have to declare the topics callbacks, which will start to store the sensor data in **self.joints** and **self.odom** elements of the class. Those callbacks allow our Robot Environment class to have the most updated sensor data for the learning algorithms, even when we pause the simulation.
+
+Add the following code to the Python file as functions members of the class:
+
+In [ ]:
+
+
+
+```
+    def _joints_callback(self, data):
+        self.joints = data
+    
+    def _odom_callback(self, data):
+        self.odom = data
+```
+
+For the publisher we have added the line:
+
+In [ ]:
+
+
+
+```
+self._roll_vel_pub = rospy.Publisher('/moving_cube/inertia_wheel_roll_joint_velocity_controller/command',
+                                             Float64, queue_size=1)
+```
+
+This also requires that we add the necessary imports at the beginning of the Python file. Add the following line:
+
+In [ ]:
+
+
+
+```
+from std_msgs.msg import Float64
+```
+
+And now we define the **_check_publishers_connection**, to check that our publisher is ready to receive the speed commands and doesn't lose any messages:
+
+In [ ]:
+
+
+
+```python
+    def _check_publishers_connection(self):
+        """
+        Checks that all the publishers are working
+        :return:
+        """
+        rate = rospy.Rate(10)  # 10hz
+        while self._roll_vel_pub.get_num_connections() == 0 and not rospy.is_shutdown():
+            rospy.logdebug("No susbribers to _roll_vel_pub yet so we wait and try again")
+            try:
+                rate.sleep()
+            except rospy.ROSInterruptException:
+                # This is to avoid error when world is rested, time when backwards.
+                pass
+        rospy.logdebug("_roll_vel_pub Publisher Connected")
+
+        rospy.logdebug("All Publishers READY
+```
 
 
 
