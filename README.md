@@ -3235,5 +3235,3 @@ class MyCubeSingleDiskEnv(robot_gazebo_env.RobotGazeboEnv):
 
 
 
-
-
