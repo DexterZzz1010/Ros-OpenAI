@@ -1025,8 +1025,6 @@ For instance, let's focus on the CartPole example. Let's say that in order to be
 
 For this case, then, we would need to define all these functions into the Robot Environment. Let's see an example of a Robot Environment script that takes into account the three points introduced above. You can check out the code here:
 
-
-
 **cartpole_env.py**
 
 ```python
