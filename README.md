@@ -1179,6 +1179,8 @@ class CartPoleEnv(robot_gazebo_env.RobotGazeboEnv):
     
 ```
 
+
+
 代码解释
 
 ```python
@@ -1795,7 +1797,9 @@ You can also save, if you want, your plot configuration. This way, you will be a
 
 
 
-## Unit 2: How to apply openai_ros to a new robot
+# Unit 2: How to apply openai_ros to a new robot
+
+## Part 1&2 Robot Environment
 
 **The moving cube robot**
 
@@ -2349,7 +2353,7 @@ But before defining the *_check_all_systems_ready*, we have to return to the __i
 
 Modify the __init__ function of your class with the following code:
 
-#### 修改init
+#### 修改init, 创建所有的订阅者和发布者
 
 **但在定义 _check_all_systems_ready 之前，我们必须返回到 init 方法，并为 MyCubeSingleDiskEnv 创建所有的订阅者和发布者，以便 _check_all_systems_ready 能够工作。**
 
@@ -3202,6 +3206,934 @@ class MyCubeSingleDiskEnv(robot_gazebo_env.RobotGazeboEnv):
 
 
 **NEXT STEP: How to create the One Disk Moving Cube Learning env for walking on the Y-axis.**
+
+## Part3 Task Environment
+
+The **Task Environment** is the one in charge to define the Reinforcement Learning task. It is in charge of:
+
+- convert the actions selected by the RL algorithm into real commands to the robot
+- converte the sensors data from the robot into the observation vector that the RL understands
+- compute the reward based on the action taken and the observation
+- dedice whether the training episode is finished or not
+
+Let's go to define the class that will allow us to define the task the robot must learn. We are going to set up everything to induce the robot to learn how to walk forwards through reinforcement learning.
+
+**任务环境**负责定义强化学习任务。它的职责包括：
+
+- 将强化学习算法选定的动作转换为机器人的实际命令。
+- 将机器人的传感器数据转换为强化学习算法能理解的观察向量。
+- 根据采取的行动和观察结果计算奖励。
+- 决定训练片段是否结束。
+
+
+
+### Step 0. Create the Task Environment file from template
+
+```
+roscd my_moving_cube_pkg/scripts/
+```
+
+```
+touch my_one_disk_walk.py;chmod +x my_one_disk_walk.py
+```
+
+**my_one_disk_walk.py**
+
+```python
+from gym import spaces
+import my_robot_env
+from gym.envs.registration import register
+import rospy
+
+# The path is __init__.py of openai_ros, where we import the MovingCubeOneDiskWalkEnv directly
+max_episode_steps = 1000 # Can be any Value
+
+register(
+        id='MyTrainingEnv-v0',
+        entry_point='template_my_training_env:MovingCubeOneDiskWalkEnv',
+        max_episode_steps=max_episode_steps,
+    )
+
+class MyTrainingEnv(cube_single_disk_env.MyRobotEnv):
+    def __init__(self):
+        
+        # Only variable needed to be set here
+        number_actions = rospy.get_param('/my_robot_namespace/n_actions')
+        self.action_space = spaces.Discrete(number_actions)
+        
+        # This is the most common case of Box observation type
+        high = numpy.array([
+            obs1_max_value,
+            obs12_max_value,
+            ...
+            obsN_max_value
+            ])
+            
+        self.observation_space = spaces.Box(-high, high)
+        
+        # Variables that we retrieve through the param server, loded when launch training launch.
+        
+
+
+        # Here we will add any init functions prior to starting the MyRobotEnv
+        super(MyTrainingEnv, self).__init__()
+
+
+    def _set_init_pose(self):
+        """Sets the Robot in its init pose
+        """
+        # TODO
+
+    def _init_env_variables(self):
+        """
+        Inits variables needed to be initialised each time we reset at the start
+        of an episode.
+        :return:
+        """
+        # TODO
+
+
+    def _set_action(self, action):
+        """
+        Move the robot based on the action variable given
+        """
+        # TODO: Move robot
+
+    def _get_obs(self):
+        """
+        Here we define what sensor data of our robots observations
+        To know which Variables we have acces to, we need to read the
+        MyRobotEnv API DOCS
+        :return: observations
+        """
+        # TODO
+        return observations
+
+    def _is_done(self, observations):
+        """
+        Decide if episode is done based on the observations
+        """
+        # TODO
+        return done
+
+    def _compute_reward(self, observations, done):
+        """
+        Return the reward based on the observations given
+        """
+        # TODO
+        return reward
+        
+    # Internal TaskEnv Methods
+```
+
+Along this unit we are going to be filling all the parts of the template according with the robot and task to work with.
+
+### Step 1. Import the RobotEnv you want it to inherit from
+
+In this case, we want it to inherit from the RobotEnv we created in the previous unit, so we have to import the **MyCubeSingleDiskEnv** from the python module **my_cube_single_disk_env.py**.
+
+### Step 2. Register the new TaskEnv
+
+在Import之后注册新的TaskEnv
+
+In order to be able to use a gym environment, we need to register it. This is done in the following sentence:
+
+```
+register(
+        id='MyTrainingEnv-v0',
+        entry_point='my_robot_env:MovingCubeOneDiskWalkEnv',
+        max_episode_steps=max_episode_steps,
+    )
+```
+
+
+
+Let's fill that sentence with the proper values for the Cubli.
+
+- **id**: is a label for the training. It has to follow the format -v#. This is mandatory from OpenAI. *label_for_task* can be anything you want, then you must provide a version number after the *v*.
+
+Let's call this training environment as *MyMovingCubeOneDiskWalkEnv*.
+
+- **entry_point**: indicates the Python class we must use to start the training. You indicate :
+
+Let's say that our Task Environment class will be called *MyMovingCubeOneDiskWalkEnv*.
+
+- **timesteps_limit**: how many steps we are allowing an episode to last (in case that it doesn't fail nor accomplishes the task).
+
+Let's set it to 1000.
+
+Here the python module where we have to import it from is exactly the one we are defining it as, so **my_one_disk_walk**. Change the template code by the following.
+
+
+
+```python
+max_episode_steps = 1000
+
+register(
+        id='MyMovingCubeOneDiskWalkEnv-v0',
+        entry_point='my_one_disk_walk:MyMovingCubeOneDiskWalkEnv',
+        max_episode_steps=max_episode_steps,
+    )
+```
+
+让我们为 Cubli 填写正确的值。
+
+- **id**: 是训练的标签。必须遵循 `-v#` 的格式。这是 OpenAI 的要求。`label_for_task` 可以是您想要的任何内容，然后必须在 v 后提供一个版本号。 让我们将这个训练环境命名为 `MyMovingCubeOneDiskWalkEnv`。
+- **entry_point**: 指示我们必须使用的 Python 类来启动训练。你可以这样指示： 假设我们的任务环境类将被称为 `MyMovingCubeOneDiskWalkEnv`。
+- **timesteps_limit**: 我们允许一个剧集持续的步数（在它没有失败或完成任务的情况下）。 我们将其设置为 1000。
+
+### Step 3. Initialize the TaskEnv Class
+
+We decided that we were going to call our Task Environment as *MyMovingCubeOneDiskWalkEnv*. So let's create it. Change the template code by the following:
+
+```python
+class MyMovingCubeOneDiskWalkEnv(my_cube_single_disk_env.MyCubeSingleDiskEnv):
+    def __init__(self):
+```
+
+**Your Task Environment class must inherit always from the Robot Environment class that you created in the previous unit**. I mean, it must inherit from the robot that you are going to use in the RL task.
+
+Here we are telling the Task Environment to inherit from the class **MyCubeSingleDiskEnv**, from the python module that we created in the previous unit called **my_cube_single_disk_env.py**.
+
+**TaskEnv 必须继承RobotEnv**
+
+#### Setting the *action_space*
+
+The *action_space* indicates the **number of actions that the robot can take for this learning task**. Change the following code on the _*init* function by the following values:
+
+`action_space` 指明了机器人在这个学习任务中可以采取的动作数量。通过以下值更改 `_init` 函数中的代码：
+
+```python
+# Only variable needed to be set here
+number_actions = rospy.get_param('/moving_cube/n_actions')
+self.action_space = spaces.Discrete(number_actions)
+```
+
+As you can see, we are retrieving the number of actions from the param server of ROS. We'll see later how to upload those parameters to the param server.
+
+#### Setting the *observation_space*
+
+We now have to create the **observations_space**. This space contains a kind of matrix of the values that we are going to use in the observation vector.
+
+In computational terms, we use a **Box** type because we need a range of floats that are different for each of the observations. For that, we use the library *numpy* and the [*spaces* class from OpenAI Gym](http://gym.openai.com/docs/#spaces).
+
+现在我们需要创建 `observations_space`。这个空间包含了我们将用于观察向量的值矩阵。
+
+在计算术语中，我们使用 `Box` 类型，因为我们需要一个浮点数范围，每个观察值都不同。为此，我们使用 `numpy` 库和 OpenAI Gym 的 `spaces` 类。
+
+For the Cubli, it looks like this:
+
+```python
+# This is the most common case of Box observation type
+high = numpy.array([
+    self.roll_speed_fixed_value,
+    self.max_distance,
+    max_roll,
+    self.max_pitch_angle,
+    self.max_y_linear_speed,
+    self.max_y_linear_speed,
+    ])
+
+self.observation_space = spaces.Box(-high, high)
+```
+
+All the parameters of the array are extracted from the param server loaded variables for the most part. So if you add the param loading, the code of the *observation_space* will end like this (change it for this in the template):
+
+数组中的所有参数大部分都是从加载的参数服务器中提取的。如果您添加了参数加载，那么观察空间的代码将会像这样结束（将模板更改为以下内容）：
+
+```python
+# Actions and Observations
+self.roll_speed_fixed_value = rospy.get_param('/moving_cube/roll_speed_fixed_value')
+self.roll_speed_increment_value = rospy.get_param('/moving_cube/roll_speed_increment_value')
+self.max_distance = rospy.get_param('/moving_cube/max_distance')
+max_roll = 2 * math.pi
+self.max_pitch_angle = rospy.get_param('/moving_cube/max_pitch_angle')
+self.max_y_linear_speed = rospy.get_param('/moving_cube/max_y_linear_speed')
+self.max_yaw_angle = rospy.get_param('/moving_cube/max_yaw_angle')
+
+high = numpy.array([
+    self.roll_speed_fixed_value,
+    self.max_distance,
+    max_roll,
+    self.max_pitch_angle,
+    self.max_y_linear_speed,
+    self.max_y_linear_speed,
+    ])
+        
+self.observation_space = spaces.Box(-high, high)
+```
+
+The *observation_space* indicates that we will return an array of **six** different values in the **_get_obs** function that define the robot's state. More on that later.
+
+`observation_space` 表示我们将在 `_get_obs` 函数中返回一个定义机器人状态的六个不同值的数组。稍后将更详细地说明。
+
+#### Initializing the Robot Environment
+
+And finally, we need to call the ***\*init\**** method of the parent class in order to initialize the Robot Environmetn class. Change the template by the following line:
+
+```python
+        super(MyMovingCubeOneDiskWalkEnv, self).__init__()
+```
+
+### Step 4. Fill in the virtual functions
+
+We have to fill the following functions that are called by the **RobotGazeboEnv** to execute different aspects of simulation, and by the learning algorithm to get the reward, observations and take action.
+
+我们需要填充由 RobotGazeboEnv 调用的以下函数来执行模拟的不同方面，并通过学习算法获取奖励、观察结果和执行动作。
+
+```python
+def _set_init_pose(self):
+    """Sets the Robot in its init pose
+    """
+    # TODO
+    
+def _init_env_variables(self):
+    """
+    Inits variables needed to be initialised each time we reset at the start
+    of an episode.
+    :return:
+    """
+    # TODO
+
+
+def _set_action(self, action):
+    """
+    Move the robot based on the action variable given
+    """
+    # TODO: Move robot
+
+def _get_obs(self):
+    """
+    Here we define what sensor data of our robot's observations
+    To know which Variables we have access to, we need to read the
+    MyRobotEnv API DOCS
+    :return: observations
+    """
+    # TODO
+    return observations
+
+def _is_done(self, observations):
+    """
+    Decide if episode is done based on the observations
+    """
+    # TODO
+    return done
+
+def _compute_reward(self, observations, done):
+    """
+    Return the reward based on the observations given
+    """
+    # TODO
+    return reward
+```
+
+#### 4.0 Set the initial position of the robot
+
+We first declare the function that sets the initial state in which the robot will start on every episode. For the Cubli, what matters is the speed of the internal joints. Change the code in the template by the following:
+
+首先声明一个函数来设置每个回合开始时机器人的初始状态。对于 Cubli 来说，重要的是内部关节的速度。
+
+```python
+def _set_init_pose(self):
+    """Sets the Robot in its init pose
+    """
+    self.move_joints(self.init_roll_vel)
+
+    return True
+```
+
+We have allowed to set that initial speed as a parameter. Hence, we add the following code for **init_roll_vel** value import from the ROS param server in the _*init*_ function:
+
+我们允许将初始速度作为参数设置。因此，我们在 `_init_` 函数中添加以下代码来从 ROS 参数服务器导入 init_roll_vel 值
+
+```
+self.init_roll_vel = rospy.get_param("/moving_cube/init_roll_vel")
+```
+
+#### 4.1 Initialize environment variables
+
+This method is called each time we reset an episode to reset the TaskEnv variables. You must include here every variable of the task that needs to be initialized on episode starting. Change the template with the following code:
+
+每次重置回合时都会调用此方法来重置 TaskEnv 变量。你必须在这里包括每个需要在回合开始时初始化的任务变量。
+
+```python
+def _init_env_variables(self):
+    """
+    Inits variables needed to be initialised each time we reset at the start
+    of an episode.
+    :return:
+    """
+    self.total_distance_moved = 0.0
+    self.current_y_distance = self.get_y_dir_distance_from_start_point(self.start_point)
+    self.roll_turn_speed = self.init_roll_vel
+```
+
+#### 4.2 Define how the RL actions convert into robot actions
+
+Here you decide how the action that the RL selects for the next step (which is a number between zero and *max_num_actions*) is transformed into actual robot movements. Once obtained the robot commands necessary to execute the action, the action is executed at the end of this fuction.
+
+In the case of Cubli, the robot can take 5 actions. The RL will select one of those by selecting a number from 0 to 4. Then it will call this function. This function will convert that number into one of the following actions:
+
+- "0": Move wheel forward
+- "1": Move wheel backwards
+- "2": Stop the wheel
+- "3": Increment the speed by a certain amount
+- "4": Decrement speed by a certain amount
+
+With those actions, the Cubli will be able to ramp the speed up/down slowly and then increment it in bursts. This is vital for creating the momentum differences that make the cube move.
+
+Then the values of speed are checked to not to be too much and then we send to the cube.
+
+在这里你决定 RL 为下一步选择的动作（是 0 到 max_num_actions 之间的一个数字）如何转换为实际的机器人动作。获取执行动作所需的机器人命令后，在此功能的末尾执行该动作。
+
+在 Cubli 的情况下，机器人可以采取 5 种动作。RL 将通过选择 0 到 4 之间的数字之一来选择其中之一。然后它将调用此函数。此函数将该数字转换为以下动作之一：
+
+- "0": 向前移动轮子
+- "1": 向后移动轮子
+- "2": 停止轮子
+- "3": 增加一定量的速度
+- "4": 减少一定量的速度
+
+通过这些动作，Cubli 将能够慢慢地加速然后突然加速。这对于创造使立方体移动的动量差异至关重要。
+
+然后检查速度值不要太高，然后我们发送给立方体。
+
+Change the code of the template with the following code:
+
+```python
+def _set_action(self, action):
+
+    # We convert the actions to speed movements to send to the parent class CubeSingleDiskEnv
+    if action == 0:# Move Speed Wheel Forwards
+        self.roll_turn_speed = self.roll_speed_fixed_value
+    elif action == 1:# Move Speed Wheel Backwards
+        self.roll_turn_speed = -self.roll_speed_fixed_value
+    elif action == 2:# Stop Speed Wheel
+        self.roll_turn_speed = 0.0
+    elif action == 3:# Increment Speed
+        self.roll_turn_speed += self.roll_speed_increment_value
+    elif action == 4:# Decrement Speed
+        self.roll_turn_speed -= self.roll_speed_increment_value
+
+    # We clamp Values to maximum
+    rospy.logdebug("roll_turn_speed before clamp=="+str(self.roll_turn_speed))
+    self.roll_turn_speed = numpy.clip(self.roll_turn_speed,
+                                      -self.roll_speed_fixed_value,
+                                      self.roll_speed_fixed_value)
+    rospy.logdebug("roll_turn_speed after clamp==" + str(self.roll_turn_speed))
+
+    # We tell the OneDiskCube to spin the RollDisk at the selected speed
+    self.move_joints(self.roll_turn_speed)
+```
+
+We also need to add to the __init__ method the following two lines in order to get the params:
+
+```python
+# Variables that we retrieve through the param server, loaded when launch training launch.
+self.roll_speed_fixed_value = rospy.get_param('/moving_cube/roll_speed_fixed_value')
+self.roll_speed_increment_value = rospy.get_param('/moving_cube/roll_speed_increment_value')
+```
+
+#### 4.3 Get the observations vector
+
+Here we retrieve sensor data using our parent class **CubeSingleDiskEnv** to get all the sensor data, and then we process it to return the observations that we see fit.
+
+在这里我们使用我们的父类 CubeSingleDiskEnv 获取所有传感器数据，然后处理它以返回我们认为合适的观察结果。
+
+```python
+def _get_obs(self):
+    """
+    Here we define what sensor data defines our robots observations
+    To know which Variables we have access to, we need to read the
+    MyCubeSingleDiskEnv API DOCS
+    :return:
+    """
+
+    # We get the orientation of the cube in RPY
+    roll, pitch, yaw = self.get_orientation_euler()
+
+    # We get the distance from the origin
+    #distance = self.get_distance_from_start_point(self.start_point)
+    y_distance = self.get_y_dir_distance_from_start_point(self.start_point)
+
+    # We get the current speed of the Roll Disk
+    current_disk_roll_vel = self.get_roll_velocity()
+
+    # We get the linear speed in the y axis
+    y_linear_speed = self.get_y_linear_speed()
+
+    cube_observations = [
+        round(current_disk_roll_vel, 0),
+        #round(distance, 1),
+        round(y_distance, 1),
+        round(roll, 1),
+        round(pitch, 1),
+        round(y_linear_speed,1),
+        round(yaw, 1),
+    ]
+
+    return cube_observations
+```
+
+We use internal functions that we will define later, which return the robot's sensory data, already processed for us. In this case, we leave only one decimal in the sensor data because it's enough for our purposes, making the defining state for the Qlearn algorithm or whatever faster.
+
+We also have to add some imports of parameters in the **__init__** function:
+
+我们使用内部函数，**这些函数为我们返回机器人的传感数据**，已经为我们处理过。在这种情况下，我们只留下传感器数据的一个小数，因为这对我们的目的足够了，使定义 Qlearn 算法或其他更快的状态。
+
+我们还必须在 `__init__` 函数中添加一些参数的导入：
+
+```python
+self.start_point = Point()
+self.start_point.x = rospy.get_param("/moving_cube/init_cube_pose/x")
+self.start_point.y = rospy.get_param("/moving_cube/init_cube_pose/y")
+self.start_point.z = rospy.get_param("/moving_cube/init_cube_pose/z")
+```
+
+And an import:
+
+```python
+from geometry_msgs.msg import Point
+```
+
+#### 4.4 Detecting when the episode must be finished
+
+Based on the status of the robot after a step, we must decide if the learning episode is over.
+
+In this case, we consider the episode done when the pitch angle surpasses a certain threshold (defined as a parameter). We also consider the episode done when the yaw exceeds the maximum angle (also a parameter).
+
+基于机器人在一个步骤之后的状态，我们需要决定学习回合是否结束。
+
+在本例中，如果俯仰角超过了某个阈值（作为参数定义），我们会认为回合结束。同样，如果偏航角超过了最大角度（也是一个参数），同样会认为回合结束。
+
+Change the template with the following code:
+
+```python
+def _is_done(self, observations):
+
+    pitch_angle = observations[3]
+    yaw_angle = observations[5]
+
+    if abs(pitch_angle) > self.max_pitch_angle:
+        rospy.logerr("WRONG Cube Pitch Orientation==>" + str(pitch_angle))
+        done = True
+    else:
+        rospy.logdebug("Cube Pitch Orientation Ok==>" + str(pitch_angle))
+        if abs(yaw_angle) > self.max_yaw_angle:
+            rospy.logerr("WRONG Cube Yaw Orientation==>" + str(yaw_angle))
+            done = True
+        else:
+            rospy.logdebug("Cube Yaw Orientation Ok==>" + str(yaw_angle))
+            done = False
+
+    return done
+```
+
+Also, modify the __init__ function to add the import of the parameters:
+
+同时，在 **init** 函数中添加参数的导入：
+
+```
+self.max_pitch_angle = rospy.get_param('/moving_cube/max_pitch_angle')
+self.max_yaw_angle = rospy.get_param('/moving_cube/max_yaw_angle')
+```
+
+#### 4.5 Compute the reward
+
+This is probably one of the most important methods. Here you will condition how the robot will learn by rewarding good-result actions and punishing bad practices. This has an enormous effect on emerging behaviours that the robot will have while trying to solve the task at hand.
+
+For the Cubli walking problem, we compute the total reward as the sum of three subrewards:
+
+- **reward_distance**: Rewards given when there is an increase from a previous step of the distance from the start point. This incourages the cube to keep moving.
+- **reward_y_axis_speed**: We give points for moving forwards on the Y-axis. This conditions the robot cube to go forwards.
+- **reward_y_axis_angle**: We give negative points based on how much the cube deviates from going in a straight line following the Y-axis. We use the sine function because the worst configuration is a 90/-90 degree devuation; after that, if it's backwards, it just has to learn to move the other way round to move positive on the Y-AXIS.
+
+这是最重要的方法之一。在这里，您将通过奖励好的结果行为和惩罚不良实践来调节机器人的学习方式。这对机器人尝试解决手头任务时的行为模式产生重大影响。
+
+对于 Cubli 行走问题，我们将总奖励计算为以下三个子奖励的总和：
+
+- **reward_distance**：当与前一步比，距离起点的距离增加时给予奖励。这鼓励方块保持移动。
+- **reward_y_axis_speed**：我们给予在 Y 轴上向前移动的点数。这指导机器人方块向前行进。
+- **reward_y_axis_angle**：基于方块偏离直线行走 Y 轴的程度给予负分。使用正弦函数是因为最糟糕的配置是 90/-90 度偏差；之后，如果是后退，它只需学习向另一个方向移动以在 Y 轴上正向移动。
+
+Modify the template to include the following code:
+
+```python
+def _compute_reward(self, observations, done):
+
+    if not done:
+
+        y_distance_now = observations[1]
+        delta_distance = y_distance_now - self.current_y_distance
+        rospy.logdebug("y_distance_now=" + str(y_distance_now)+", current_y_distance=" + str(self.current_y_distance))
+        rospy.logdebug("delta_distance=" + str(delta_distance))
+        reward_distance = delta_distance * self.move_distance_reward_weight
+        self.current_y_distance = y_distance_now
+
+        y_linear_speed = observations[4]
+        rospy.logdebug("y_linear_speed=" + str(y_linear_speed))
+        reward_y_axis_speed = y_linear_speed * self.y_linear_speed_reward_weight
+
+        # Negative Reward for yaw different from zero.
+        yaw_angle = observations[5]
+        rospy.logdebug("yaw_angle=" + str(yaw_angle))
+        # Worst yaw is 90 and 270 degrees, best 0 and 180. We use sin function for giving reward.
+        sin_yaw_angle = math.sin(yaw_angle)
+        rospy.logdebug("sin_yaw_angle=" + str(sin_yaw_angle))
+        reward_y_axis_angle = -1 * abs(sin_yaw_angle) * self.y_axis_angle_reward_weight
+
+
+        # We are not intereseted in decimals of the reward, doesnt give any advatage.
+        reward = round(reward_distance, 0) + round(reward_y_axis_speed, 0) + round(reward_y_axis_angle, 0)
+        rospy.logdebug("reward_distance=" + str(reward_distance))
+        rospy.logdebug("reward_y_axis_speed=" + str(reward_y_axis_speed))
+        rospy.logdebug("reward_y_axis_angle=" + str(reward_y_axis_angle))
+        rospy.logdebug("reward=" + str(reward))
+    else:
+        reward = -self.end_episode_points
+
+    return reward
+```
+
+Also modify the __init__ method to import some parameters from ROSPARAM server:
+
+```python
+self.move_distance_reward_weight = rospy.get_param("/moving_cube/move_distance_reward_weight")
+self.y_linear_speed_reward_weight = rospy.get_param("/moving_cube/y_linear_speed_reward_weight")
+self.y_axis_angle_reward_weight = rospy.get_param("/moving_cube/y_axis_angle_reward_weight")
+self.end_episode_points = rospy.get_param("/moving_cube/end_episode_points")
+```
+
+Finally, add the following imports at the beginning of the Python file:
+
+```python
+import numpy
+import math
+```
+
+### Final Script
+
+```python
+#! /usr/bin/env python
+
+import rospy
+import numpy
+import math
+from gym import spaces
+import my_cube_single_disk_env
+from gym.envs.registration import register
+from geometry_msgs.msg import Point
+from tf.transformations import euler_from_quaternion
+
+max_episode_steps = 10000 # Can be any Value
+
+register(
+        id='MyMovingCubeOneDiskWalkEnv-v0',
+        entry_point='my_one_disk_walk:MyMovingCubeOneDiskWalkEnv',
+        max_episode_steps=max_episode_steps,
+    )
+
+class MyMovingCubeOneDiskWalkEnv(my_cube_single_disk_env.MyCubeSingleDiskEnv):
+    def __init__(self):
+        
+        # Only variable needed to be set here
+        number_actions = rospy.get_param('/moving_cube/n_actions')
+        self.action_space = spaces.Discrete(number_actions)
+        
+        
+        #number_observations = rospy.get_param('/moving_cube/n_observations')
+        """
+        We set the Observation space for the 6 observations
+        cube_observations = [
+            round(current_disk_roll_vel, 0),
+            round(y_distance, 1),
+            round(roll, 1),
+            round(pitch, 1),
+            round(y_linear_speed,1),
+            round(yaw, 1),
+        ]
+        """
+        
+        # Actions and Observations
+        self.roll_speed_fixed_value = rospy.get_param('/moving_cube/roll_speed_fixed_value')
+        self.roll_speed_increment_value = rospy.get_param('/moving_cube/roll_speed_increment_value')
+        self.max_distance = rospy.get_param('/moving_cube/max_distance')
+        max_roll = 2 * math.pi
+        self.max_pitch_angle = rospy.get_param('/moving_cube/max_pitch_angle')
+        self.max_y_linear_speed = rospy.get_param('/moving_cube/max_y_linear_speed')
+        self.max_yaw_angle = rospy.get_param('/moving_cube/max_yaw_angle')
+        
+        
+        high = numpy.array([
+            self.roll_speed_fixed_value,
+            self.max_distance,
+            max_roll,
+            self.max_pitch_angle,
+            self.max_y_linear_speed,
+            self.max_y_linear_speed,
+            ])
+        
+        self.observation_space = spaces.Box(-high, high)
+        
+        rospy.logwarn("ACTION SPACES TYPE===>"+str(self.action_space))
+        rospy.logwarn("OBSERVATION SPACES TYPE===>"+str(self.observation_space))
+        
+        # Variables that we retrieve through the param server, loded when launch training launch.
+        self.init_roll_vel = rospy.get_param("/moving_cube/init_roll_vel")
+        
+        
+        # Get Observations
+        self.start_point = Point()
+        self.start_point.x = rospy.get_param("/moving_cube/init_cube_pose/x")
+        self.start_point.y = rospy.get_param("/moving_cube/init_cube_pose/y")
+        self.start_point.z = rospy.get_param("/moving_cube/init_cube_pose/z")
+        
+        # Rewards
+        self.move_distance_reward_weight = rospy.get_param("/moving_cube/move_distance_reward_weight")
+        self.y_linear_speed_reward_weight = rospy.get_param("/moving_cube/y_linear_speed_reward_weight")
+        self.y_axis_angle_reward_weight = rospy.get_param("/moving_cube/y_axis_angle_reward_weight")
+        self.end_episode_points = rospy.get_param("/moving_cube/end_episode_points")
+
+        self.cumulated_steps = 0.0
+
+        # Here we will add any init functions prior to starting the MyRobotEnv
+        super(MyMovingCubeOneDiskWalkEnv, self).__init__()
+
+    def _set_init_pose(self):
+        """Sets the Robot in its init pose
+        """
+        self.move_joints(self.init_roll_vel)
+
+        return True
+
+
+    def _init_env_variables(self):
+        """
+        Inits variables needed to be initialised each time we reset at the start
+        of an episode.
+        :return:
+        """
+        self.total_distance_moved = 0.0
+        self.current_y_distance = self.get_y_dir_distance_from_start_point(self.start_point)
+        self.roll_turn_speed = rospy.get_param('/moving_cube/init_roll_vel')
+        # For Info Purposes
+        self.cumulated_reward = 0.0
+        #self.cumulated_steps = 0.0
+
+
+    def _set_action(self, action):
+
+        # We convert the actions to speed movements to send to the parent class CubeSingleDiskEnv
+        if action == 0:# Move Speed Wheel Forwards
+            self.roll_turn_speed = self.roll_speed_fixed_value
+        elif action == 1:# Move Speed Wheel Backwards
+            self.roll_turn_speed = -1*self.roll_speed_fixed_value
+        elif action == 2:# Stop Speed Wheel
+            self.roll_turn_speed = 0.0
+        elif action == 3:# Increment Speed
+            self.roll_turn_speed += self.roll_speed_increment_value
+        elif action == 4:# Decrement Speed
+            self.roll_turn_speed -= self.roll_speed_increment_value
+
+        # We clamp Values to maximum
+        rospy.logdebug("roll_turn_speed before clamp=="+str(self.roll_turn_speed))
+        self.roll_turn_speed = numpy.clip(self.roll_turn_speed,
+                                          -1*self.roll_speed_fixed_value,
+                                          self.roll_speed_fixed_value)
+        rospy.logdebug("roll_turn_speed after clamp==" + str(self.roll_turn_speed))
+
+        # We tell the OneDiskCube to spin the RollDisk at the selected speed
+        self.move_joints(self.roll_turn_speed)
+
+    def _get_obs(self):
+        """
+        Here we define what sensor data defines our robots observations
+        To know which Variables we have acces to, we need to read the
+        MyCubeSingleDiskEnv API DOCS
+        :return:
+        """
+
+        # We get the orientation of the cube in RPY
+        roll, pitch, yaw = self.get_orientation_euler()
+
+        # We get the distance from the origin
+        #distance = self.get_distance_from_start_point(self.start_point)
+        y_distance = self.get_y_dir_distance_from_start_point(self.start_point)
+
+        # We get the current speed of the Roll Disk
+        current_disk_roll_vel = self.get_roll_velocity()
+
+        # We get the linear speed in the y axis
+        y_linear_speed = self.get_y_linear_speed()
+
+        
+        cube_observations = [
+            round(current_disk_roll_vel, 0),
+            round(y_distance, 1),
+            round(roll, 1),
+            round(pitch, 1),
+            round(y_linear_speed,1),
+            round(yaw, 1)
+        ]
+        
+        rospy.logdebug("Observations==>"+str(cube_observations))
+
+        return cube_observations
+        
+
+    def _is_done(self, observations):
+
+        pitch_angle = observations[3]
+        yaw_angle = observations[5]
+
+        if abs(pitch_angle) > self.max_pitch_angle:
+            rospy.logerr("WRONG Cube Pitch Orientation==>" + str(pitch_angle))
+            done = True
+        else:
+            rospy.logdebug("Cube Pitch Orientation Ok==>" + str(pitch_angle))
+            if abs(yaw_angle) > self.max_yaw_angle:
+                rospy.logerr("WRONG Cube Yaw Orientation==>" + str(yaw_angle))
+                done = True
+            else:
+                rospy.logdebug("Cube Yaw Orientation Ok==>" + str(yaw_angle))
+                done = False
+
+        return done
+
+    def _compute_reward(self, observations, done):
+
+        if not done:
+
+            y_distance_now = observations[1]
+            delta_distance = y_distance_now - self.current_y_distance
+            rospy.logdebug("y_distance_now=" + str(y_distance_now)+", current_y_distance=" + str(self.current_y_distance))
+            rospy.logdebug("delta_distance=" + str(delta_distance))
+            reward_distance = delta_distance * self.move_distance_reward_weight
+            self.current_y_distance = y_distance_now
+
+            y_linear_speed = observations[4]
+            rospy.logdebug("y_linear_speed=" + str(y_linear_speed))
+            reward_y_axis_speed = y_linear_speed * self.y_linear_speed_reward_weight
+
+            # Negative Reward for yaw different from zero.
+            yaw_angle = observations[5]
+            rospy.logdebug("yaw_angle=" + str(yaw_angle))
+            # Worst yaw is 90 and 270 degrees, best 0 and 180. We use sin function for giving reward.
+            sin_yaw_angle = math.sin(yaw_angle)
+            rospy.logdebug("sin_yaw_angle=" + str(sin_yaw_angle))
+            reward_y_axis_angle = -1 * abs(sin_yaw_angle) * self.y_axis_angle_reward_weight
+
+
+            # We are not intereseted in decimals of the reward, doesn't give any advatage.
+            reward = round(reward_distance, 0) + round(reward_y_axis_speed, 0) + round(reward_y_axis_angle, 0)
+            rospy.logdebug("reward_distance=" + str(reward_distance))
+            rospy.logdebug("reward_y_axis_speed=" + str(reward_y_axis_speed))
+            rospy.logdebug("reward_y_axis_angle=" + str(reward_y_axis_angle))
+            rospy.logdebug("reward=" + str(reward))
+        else:
+            reward = -1*self.end_episode_points
+
+
+        self.cumulated_reward += reward
+        rospy.logdebug("Cumulated_reward=" + str(self.cumulated_reward))
+        self.cumulated_steps += 1
+        rospy.logdebug("Cumulated_steps=" + str(self.cumulated_steps))
+        
+        return reward
+
+
+    # Internal TaskEnv Methods
+    def get_y_dir_distance_from_start_point(self, start_point):
+        """
+        Calculates the distance from the given point and the current position
+        given by odometry. In this case the increase or decrease in y.
+        :param start_point:
+        :return:
+        """
+        y_dist_dir = self.odom.pose.pose.position.y - start_point.y
+    
+        return y_dist_dir
+    
+    
+    def get_distance_from_start_point(self, start_point):
+        """
+        Calculates the distance from the given point and the current position
+        given by odometry
+        :param start_point:
+        :return:
+        """
+        distance = self.get_distance_from_point(start_point,
+                                                self.odom.pose.pose.position)
+    
+        return distance
+    
+    def get_distance_from_point(self, pstart, p_end):
+        """
+        Given a Vector3 Object, get distance from current position
+        :param p_end:
+        :return:
+        """
+        a = numpy.array((pstart.x, pstart.y, pstart.z))
+        b = numpy.array((p_end.x, p_end.y, p_end.z))
+    
+        distance = numpy.linalg.norm(a - b)
+    
+        return distance
+    
+    def get_orientation_euler(self):
+        # We convert from quaternions to euler
+        orientation_list = [self.odom.pose.pose.orientation.x,
+                            self.odom.pose.pose.orientation.y,
+                            self.odom.pose.pose.orientation.z,
+                            self.odom.pose.pose.orientation.w]
+    
+        roll, pitch, yaw = euler_from_quaternion(orientation_list)
+        return roll, pitch, yaw
+    
+    def get_roll_velocity(self):
+        # We get the current joint roll velocity
+        roll_vel = self.joints.velocity[0]
+        return roll_vel
+    
+    def get_y_linear_speed(self):
+        # We get the current joint roll velocity
+        y_linear_speed = self.odom.twist.twist.linear.y
+        return y_linear_speed
+```
+
+
+
+### STEP 6. Add the learning algorithm
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
