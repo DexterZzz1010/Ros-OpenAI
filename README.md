@@ -4105,13 +4105,581 @@ class MyMovingCubeOneDiskWalkEnv(my_cube_single_disk_env.MyCubeSingleDiskEnv):
 
 ### STEP 6. Add the learning algorithm
 
+## STEP 6. Add the learning algorithm
+
+Now, we are going to use the same scripts that you used for the **CartPole example** to train through Qlearn, but adapting them to use the Cube environments we have just created. We will only need to change the Environments we use, the configuration yaml file, and some minor elements to adapt to the change of the environments.
+
+### 6.0 创建**start_training.py** 
+
+```
+roscd cartpole_v0_training/scripts
+```
+
+```
+cp ./start_training.py ~/catkin_ws/src/my_moving_cube_pkg/scripts
+```
+
+Now let's modify that training script to be useful for Cubli.
+
+### 6.1 Import the Task Environment for Cubli
+
+Importing will only have the effect of triggering the register environment method at the top of the file.
+
+```
+# import our training environment
+from openai_ros.task_envs.cartpole_stay_up import stay_up
+```
+
+Change it to:
+
+```
+# import our training environment
+import my_one_disk_walk
+```
+
+### 6.2 实例化新的环境
+
+Modify the line that instantiates the Cartpole Environment to intantiate Cubli's one. 
+
+将原本实例化 Cartpole 环境的代码行修改为实例化 Cubli 的环境。
+
+Change the following line:
+
+```
+# Create the Gym environment
+env = gym.make('CartPoleStayUp-v0')
+```
+
+By this one:
+
+```
+env = gym.make('MyMovingCubeOneDiskWalkEnv-v0')
+```
+
+### 6.3 Change the location for the logs
 
 
 
+```
+# Set the logging system
+rospack = rospkg.RosPack()
+pkg_path = rospack.get_path('cartpole_v0_training')
+outdir = pkg_path + '/training_results'
+env = wrappers.Monitor(env, outdir, force=True) 
+rospy.loginfo ( "Monitor Wrapper started")
+
+last_time_steps = numpy.ndarray(0)
+
+# Loads parameters from the ROS param server
+# Parameters are stored in a yaml file inside the config directory
+# They are loaded at runtime by the launch file
+Alpha = rospy.get_param("/cartpole_v0/alpha")
+Epsilon = rospy.get_param("/cartpole_v0/epsilon")
+Gamma = rospy.get_param("/cartpole_v0/gamma")
+epsilon_discount = rospy.get_param("/cartpole_v0/epsilon_discount")
+nepisodes = rospy.get_param("/cartpole_v0/nepisodes")
+nsteps = rospy.get_param("/cartpole_v0/nsteps")
+
+running_step = rospy.get_param("/cartpole_v0/running_step")
+```
+
+We have to change the package **cartpole_v0_training** to our own package; in this case, we will pick **my_moving_cube_pkg**.
+
+我们需要将 `cartpole_v0_training` 包名更改为我们自己的包名，比如 `my_moving_cube_pkg`，同时修改命名空间从 `cartpole_v0` 改为 `moving_cube`。
+
+Then, change the namespace from **cartpole_v0** to **moving_cube**.
+
+```
+# Set the logging system
+rospack = rospkg.RosPack()
+pkg_path = rospack.get_path('my_moving_cube_pkg')
+outdir = pkg_path + '/training_results'
+env = wrappers.Monitor(env, outdir, force=True) 
+rospy.loginfo ( "Monitor Wrapper started")
+
+last_time_steps = numpy.ndarray(0)
+
+# Loads parameters from the ROS param server
+# Parameters are stored in a yaml file inside the config directory
+# They are loaded at runtime by the launch file
+Alpha = rospy.get_param("/moving_cube/alpha")
+Epsilon = rospy.get_param("/moving_cube/epsilon")
+Gamma = rospy.get_param("/moving_cube/gamma")
+epsilon_discount = rospy.get_param("/moving_cube/epsilon_discount")
+nepisodes = rospy.get_param("/moving_cube/nepisodes")
+nsteps = rospy.get_param("/moving_cube/nsteps")
+
+running_step = rospy.get_param("/moving_cube/running_step")
+```
+
+### 6.4  简化观察状态的生成
+
+We sometimes want to filter the observations given, so that the reinforcement algorithms go faster. We have to add the following lines
+
+有时我们希望过滤观察结果，以加快强化学习算法的速度。
+
+```
+# Initialize the environment and get first state of the robot
+observation = env.reset()
+state = ''.join(map(str, observation))
+```
+
+Turn it into this:
+
+```
+# Initialize the environment and get first state of the robot
+observation = env.reset()
+simplified_observations = convert_obs_to_state(observation)
+state = ''.join(map(str, simplified_observations))
+```
+
+And also this: 
+
+```
+nextState = ''.join(map(str, observation))
+```
+
+Turn it into this:
+
+```
+simplified_observations = convert_obs_to_state(observation)
+nextState = ''.join(map(str, simplified_observations))
+```
+
+1. **`simplified_observations = convert_obs_to_state(observation)`**:
+   - `observation`：这通常是一个包含从环境中收集的各种传感器数据的列表或数组，如位置、速度、角度等。
+   - `convert_obs_to_state`：这是一个函数，其作用是将复杂或多维的`observation`数据转换为更简化的形式。简化可能涉及选择特定的观察部分、应用某些数学转换（如标准化、缩放）、或者只保留对完成学习任务最重要的信息。
+   - `simplified_observations`：这是转换函数的输出，它是一个简化后的状态表示，通常是一个数值列表或数组，用于描述环境的当前状态。这种简化有助于学习算法更有效地理解和处理环境状态。
+2. **`nextState = ''.join(map(str, simplified_observations))`**:
+   - `map(str, simplified_observations)`：这个表达式将`str`函数应用于`simplified_observations`中的每一个元素。这样做是为了将数值转换为字符串，因为`join`函数需要字符串操作对象。
+   - `''.join(...)`：这是一个字符串方法，用于将序列中的所有字符串元素连接成一个单一的字符串。这里的`''`表示没有字符被插入到元素之间，即简单地拼接它们。
+   - `nextState`：这是最终生成的字符串，代表了当前观察到的环境状态。这种状态表示形式通常用于强化学习中的状态-行为表或Q-表，其中状态需要以唯一和一致的方式被编码。
 
 
 
+and define this **convert_obs_to_state** method:
 
+```
+def convert_obs_to_state(observations):
+    """
+    Converts the observations used for reward and so on to the essentials for the robot state
+    In this case, we only need the orientation of the cube and the speed of the disc.
+    The distance doesn't condition at all the actions
+    """
+    disk_roll_vel = observations[0]
+    # roll_angle = observations[2]
+    y_linear_speed = observations[4]
+    yaw_angle = observations[5]
+
+    state_converted = [disk_roll_vel, y_linear_speed, yaw_angle]
+
+    return state_converted
+```
+
+### 6.5 创建参数文件
+
+As for the Cartpole, we need to create a parameters file that will contain the configuration of the RL task, including parameters for the RL algorithm, for the task and for the robot too.
+
+如同 Cartpole，我们需要创建一个包含 RL 任务配置的参数文件，包括算法参数和任务参数。
+
+Create a config file in the *config* directory of your package:
+
+```
+roscd my_moving_cube_pkg
+mkdir config
+cd config
+touch my_one_disk_walk_openai_params.yaml
+```
+
+Then copy the following content inside it:
+
+**my_one_disk_walk_openai_params.yaml**
+
+```yaml
+moving_cube: #namespace
+
+    running_step: 0.04 # amount of time the control will be executed
+    pos_step: 0.016     # increment in position for each command
+    
+    #qlearn parameters
+    alpha: 0.1
+    gamma: 0.7
+    epsilon: 0.9
+    epsilon_discount: 0.999
+    nepisodes: 500
+    nsteps: 1000
+    number_splits: 10 #set to change the number of state splits for the continuous problem and also the number of env_variable splits
+
+    running_step: 0.06 # Time for each step
+    wait_time: 0.1 # Time to wait in the reset phases
+
+    n_actions: 5 # We have 3 actions
+
+    speed_step: 1.0 # Time to wait in the reset phases
+
+    init_roll_vel: 0.0 # Initial speed of the Roll Disk
+
+    roll_speed_fixed_value: 100.0 # Speed at which it will move forwards or backwards
+    roll_speed_increment_value: 10.0 # Increment that could be done in each step
+
+    max_distance: 2.0 # Maximum distance allowed for the RobotCube
+    max_pitch_angle: 0.2 # Maximum Angle radians in Pitch that we allow before terminating episode
+    max_yaw_angle: 0.1 # Maximum yaw angle deviation, after that it starts getting negative rewards
+    max_y_linear_speed: 100 # Maximum speed in y axis
+
+    init_cube_pose:
+      x: 0.0
+      y: 0.0
+      z: 0.0
+
+    end_episode_points: 1000 # Points given when ending an episode
+
+    move_distance_reward_weight: 1000.0 # Multiplier for the moved distance reward, Ex: inc_d = 0.1 --> 100points
+    y_linear_speed_reward_weight: 1000.0 # Multiplier for moving fast on the y Axis
+    y_axis_angle_reward_weight: 1000.0 # Multiplier of angle of yaw, to keep it straight
+```
+
+**END my_one_disk_walk_openai_params.yaml**
+
+That is the file that provides all the parameters that we have been loading along the Task and Robot Environments.
+
+### 6.6 修改start_training.py参数加载
+
+The RL is the same for the Cartpole and for the Cubli problems. Hence, the algorithm parameter names are the same. However, the name of the ROS parameters from which we obtain the RL params are different for each robot.
+
+That is why we need to modify the load of the parameters. Based on the **my_one_disk_walk_openai_params.yaml** file, you need to modify the following code of the training script:
+
+由于 RL 算法对于 Cartpole 和 Cubli 是相同的，算法参数名称保持不变。但是，从 ROS 参数服务器获取 RL 参数的名称对每个机器人都是不同的。所以我们需要根据 **`my_one_disk_walk_openai_params.yaml`** 文件修改训练脚本中的参数加载代码。
+
+```
+# Loads parameters from the ROS param server
+# Parameters are stored in a yaml file inside the config directory
+# They are loaded at runtime by the launch file
+Alpha = rospy.get_param("/cartpole_v0/alpha")
+Epsilon = rospy.get_param("/cartpole_v0/epsilon")
+Gamma = rospy.get_param("/cartpole_v0/gamma")
+epsilon_discount = rospy.get_param("/cartpole_v0/epsilon_discount")
+nepisodes = rospy.get_param("/cartpole_v0/nepisodes")
+nsteps = rospy.get_param("/cartpole_v0/nsteps")
+
+running_step = rospy.get_param("/cartpole_v0/running_step")
+```
+
+By the following code:
+
+```
+# Loads parameters from the ROS param server
+# Parameters are stored in a yaml file inside the config directory
+# They are loaded at runtime by the launch file
+Alpha = rospy.get_param("/moving_cube/alpha")
+Epsilon = rospy.get_param("/moving_cube/epsilon")
+Gamma = rospy.get_param("/moving_cube/gamma")
+epsilon_discount = rospy.get_param("/moving_cube/epsilon_discount")
+nepisodes = rospy.get_param("/moving_cube/nepisodes")
+nsteps = rospy.get_param("/moving_cube/nsteps")
+
+running_step = rospy.get_param("/moving_cube/running_step")
+```
+
+Having done that, then the final version of the training script should be:
+
+**start_training.py**
+
+```
+#!/usr/bin/env python
+
+import gym
+import time
+import numpy
+import random
+import time
+import qlearn
+from gym import wrappers
+
+# ROS packages required
+import rospy
+import rospkg
+from functools import reduce
+
+# import our training environment
+#from openai_ros.task_envs.cartpole_stay_up import stay_up
+# import our training environment
+import my_one_disk_walk
+
+
+def convert_obs_to_state(observations):
+    """
+    Converts the observations used for reward and so on to the essentials for the robot state
+    In this case, we only need the orientation of the cube and the speed of the disc.
+    The distance doesn't condition at all the actions
+    """
+    disk_roll_vel = observations[0]
+    # roll_angle = observations[2]
+    y_linear_speed = observations[4]
+    yaw_angle = observations[5]
+
+    state_converted = [disk_roll_vel, y_linear_speed, yaw_angle]
+
+    return state_converted
+
+if __name__ == '__main__':
+    
+    rospy.init_node('cartpole_gym', anonymous=True, log_level=rospy.WARN)
+
+    # Create the Gym environment
+    #env = gym.make('CartPoleStayUp-v0')
+    env = gym.make('MyMovingCubeOneDiskWalkEnv-v0')
+    rospy.loginfo ( "Gym environment done")
+        
+    # Set the logging system
+    rospack = rospkg.RosPack()
+    pkg_path = rospack.get_path('my_moving_cube_pkg')
+    outdir = pkg_path + '/training_results'
+    env = wrappers.Monitor(env, outdir, force=True) 
+    rospy.loginfo ( "Monitor Wrapper started")
+
+    last_time_steps = numpy.ndarray(0)
+
+    # Loads parameters from the ROS param server
+    # Parameters are stored in a yaml file inside the config directory
+    # They are loaded at runtime by the launch file
+    Alpha = rospy.get_param("/moving_cube/alpha")
+    Epsilon = rospy.get_param("/moving_cube/epsilon")
+    Gamma = rospy.get_param("/moving_cube/gamma")
+    epsilon_discount = rospy.get_param("/moving_cube/epsilon_discount")
+    nepisodes = rospy.get_param("/moving_cube/nepisodes")
+    nsteps = rospy.get_param("/moving_cube/nsteps")
+
+    running_step = rospy.get_param("/moving_cube/running_step")
+
+    # Initialises the algorithm that we are going to use for learning
+    qlearn = qlearn.QLearn(actions=range(env.action_space.n),
+                    alpha=Alpha, gamma=Gamma, epsilon=Epsilon)
+    initial_epsilon = qlearn.epsilon
+
+    start_time = time.time()
+    highest_reward = 0
+
+    # Starts the main training loop: the one about the episodes to do
+    for x in range(nepisodes):
+        rospy.logdebug("############### START EPISODE => " + str(x))
+        
+        cumulated_reward = 0  
+        done = False
+        if qlearn.epsilon > 0.05:
+            qlearn.epsilon *= epsilon_discount
+        
+        # Initialize the environment and get first state of the robot
+        observation = env.reset()
+        simplified_observations = convert_obs_to_state(observation)
+        state = ''.join(map(str, simplified_observations))
+        
+        # Show on screen the actual situation of the robot
+        # for each episode, we test the robot for nsteps
+        for i in range(nsteps):
+            
+            rospy.loginfo("############### Start Step => "+str(i))
+            # Pick an action based on the current state
+            action = qlearn.chooseAction(state)
+            rospy.loginfo ("Next action is: %d", action)
+            # Execute the action in the environment and get feedback
+            observation, reward, done, info = env.step(action)
+            rospy.loginfo(str(observation) + " " + str(reward))
+            cumulated_reward += reward
+            if highest_reward < cumulated_reward:
+                highest_reward = cumulated_reward
+
+            simplified_observations = convert_obs_to_state(observation)
+            nextState = ''.join(map(str, simplified_observations))
+
+            # Make the algorithm learn based on the results
+            #rospy.logwarn("############### State we were => " + str(state))
+            #rospy.logwarn("############### Action that we took => " + str(action))
+            #rospy.logwarn("############### Reward that action gave => " + str(reward))
+            #rospy.logwarn("############### State in which we will start next step => " + str(nextState))
+            qlearn.learn(state, action, reward, nextState)
+
+            if not(done):
+                state = nextState
+            else:
+                rospy.loginfo ("DONE")
+                last_time_steps = numpy.append(last_time_steps, [int(i + 1)])
+                break
+            rospy.loginfo("############### END Step =>" + str(i))
+            #raw_input("Next Step...PRESS KEY")
+            #rospy.sleep(2.0)
+        m, s = divmod(int(time.time() - start_time), 60)
+        h, m = divmod(m, 60)
+        rospy.logwarn ( ("EP: "+str(x+1)+" - [alpha: "+str(round(qlearn.alpha,2))+" - gamma: "+str(round(qlearn.gamma,2))+" - epsilon: "+str(round(qlearn.epsilon,2))+"] - Reward: "+str(cumulated_reward)+"     Time: %d:%02d:%02d" % (h, m, s)))
+
+    
+    rospy.loginfo ( ("\n|"+str(nepisodes)+"|"+str(qlearn.alpha)+"|"+str(qlearn.gamma)+"|"+str(initial_epsilon)+"*"+str(epsilon_discount)+"|"+str(highest_reward)+"| PICTURE |"))
+
+    l = last_time_steps.tolist()
+    l.sort()
+
+    #print("Parameters: a="+str)
+    rospy.loginfo("Overall score: {:0.2f}".format(last_time_steps.mean()))
+    rospy.loginfo("Best 100 score: {:0.2f}".format(reduce(lambda x, y: x + y, l[-100:]) / len(l[-100:])))
+
+    env.close()
+```
+
+**END start_training.py**
+
+### 6.7 Create the launch file
+
+我们需要创建一个启动文件来加载 ROS 参数服务器中的参数并启动将启动 RL 训练的训练脚本。
+
+Now we need to create a launch file that will do the following:
+
+- Load the parameters in the ROS param server
+- Launch the training script that will kick up the RL training
+
+Go to the launch directory and create the launch file:
+
+```
+roscd my_moving_cube_pkg
+mkdir launch
+cd launch
+touch start_training_cube.launch
+```
+
+Then copy in the launch file the following content:
+
+**start_training_cube.launch**
+
+In [ ]:
+
+
+
+```
+<launch>
+    <rosparam command="load" file="$(find my_moving_cube_pkg)/config/my_one_disk_walk_openai_params.yaml" />
+    <!-- Launch the training system -->
+    <node pkg="my_moving_cube_pkg" name="movingcube_gym" type="start_training.py" output="screen"/>
+</launch>
+```
+
+**END start_training_cube.launch**
+
+### 6.8 Add the learning algorithm
+
+Finally, add the actual learning algorithm (remember we are not still using the OpenAI Baselines, so we need the RL algorithm implemented somehow).
+
+Go to the *scripts* directory and create the QLearning file:
+
+```
+roscd my_moving_cube_pkg/scripts
+touch qlearn.py
+```
+
+Then copy on the file the following content:
+
+**qlearn.py**
+
+```
+'''
+Q-learning approach for different RL problems
+as part of the basic series on reinforcement learning @
+https://github.com/vmayoral/basic_reinforcement_learning
+ 
+Inspired by https://gym.openai.com/evaluations/eval_kWknKOkPQ7izrixdhriurA
+ 
+        @author: Victor Mayoral Vilches <victor@erlerobotics.com>
+'''
+import random
+
+class QLearn:
+    def __init__(self, actions, epsilon, alpha, gamma):
+        self.q = {}
+        self.epsilon = epsilon  # exploration constant
+        self.alpha = alpha      # discount constant
+        self.gamma = gamma      # discount factor
+        self.actions = actions
+
+    def getQ(self, state, action):
+        return self.q.get((state, action), 0.0)
+
+    def learnQ(self, state, action, reward, value):
+        '''
+        Q-learning:
+            Q(s, a) += alpha * (reward(s,a) + max(Q(s') - Q(s,a))            
+        '''
+        oldv = self.q.get((state, action), None)
+        if oldv is None:
+            self.q[(state, action)] = reward
+        else:
+            self.q[(state, action)] = oldv + self.alpha * (value - oldv)
+
+    def chooseAction(self, state, return_q=False):
+        q = [self.getQ(state, a) for a in self.actions]
+        maxQ = max(q)
+
+        if random.random() < self.epsilon:
+            minQ = min(q); mag = max(abs(minQ), abs(maxQ))
+            # add random values to all the actions, recalculate maxQ
+            q = [q[i] + random.random() * mag - .5 * mag for i in range(len(self.actions))] 
+            maxQ = max(q)
+
+        count = q.count(maxQ)
+        # In case there're several state-action max values 
+        # we select a random one among them
+        if count > 1:
+            best = [i for i in range(len(self.actions)) if q[i] == maxQ]
+            i = random.choice(best)
+        else:
+            i = q.index(maxQ)
+
+        action = self.actions[i]        
+        if return_q: # if they want it, give it!
+            return action, q
+        return action
+
+    def learn(self, state1, action1, reward, state2):
+        maxqnew = max([self.getQ(state2, a) for a in self.actions])
+        self.learnQ(state1, action1, reward, reward + self.gamma*maxqnew)
+```
+
+**END qlearn.py**
+
+### 6.9 Launch the training!
+
+Now it is time to launch the training and see the robot learn!
+
+But before running this launch, check that all the topics needed are available, just in case the simulation died. For example check that the topic **/moving_cube/odom** is publishing. Again, if not unpause the simulation as explained in unit3.
+
+现在可以启动训练并观察机器人学习了。在启动之前，请确认所有必需的主题都可用，以防模拟过程中出现问题。例如，确认 `/moving_cube/odom` 主题是否在发布。如果没有，如单元3所述，取消暂停模拟。
+
+```
+roslaunch my_moving_cube_pkg start_training_cube.launch
+```
+
+
+
+### **EXTRA exercise U2.1**
+
+As a challenge, how would we change the direction in which the robot learns to move?
+
+Solution Exercise U2.1
+
+Well, the answer is simple: We go to the **MyMovingCubeOneDiskWalkEnv** and change the way in which we assign the rewards:
+
+```
+y_linear_speed = observations[4]
+rospy.logdebug("y_linear_speed=" + str(y_linear_speed))
+reward_y_axis_speed = y_linear_speed * self.y_linear_speed_reward_weight
+```
+
+We have to invert the sign, although we don't even need to access the code. We just have to change the value of the self.y_linear_speed_reward_weight, which is imported from the yaml file that defines the parameters:
+
+```
+y_linear_speed_reward_weight: 1000.0 # Multiplier for moving fast in the y Axis
+```
+
+```
+y_linear_speed_reward_weight: -1000.0 # Multiplier for mov
+```
 
 
 
