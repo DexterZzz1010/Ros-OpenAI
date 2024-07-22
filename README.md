@@ -4125,14 +4125,14 @@ Now let's modify that training script to be useful for Cubli.
 
 Importing will only have the effect of triggering the register environment method at the top of the file.
 
-```
+```python
 # import our training environment
 from openai_ros.task_envs.cartpole_stay_up import stay_up
 ```
 
 Change it to:
 
-```
+```python
 # import our training environment
 import my_one_disk_walk
 ```
@@ -4145,14 +4145,14 @@ Modify the line that instantiates the Cartpole Environment to intantiate Cubli's
 
 Change the following line:
 
-```
+```python
 # Create the Gym environment
 env = gym.make('CartPoleStayUp-v0')
 ```
 
 By this one:
 
-```
+```python
 env = gym.make('MyMovingCubeOneDiskWalkEnv-v0')
 ```
 
@@ -4160,7 +4160,7 @@ env = gym.make('MyMovingCubeOneDiskWalkEnv-v0')
 
 
 
-```
+```python
 # Set the logging system
 rospack = rospkg.RosPack()
 pkg_path = rospack.get_path('cartpole_v0_training')
@@ -4189,7 +4189,7 @@ We have to change the package **cartpole_v0_training** to our own package; in th
 
 Then, change the namespace from **cartpole_v0** to **moving_cube**.
 
-```
+```python
 # Set the logging system
 rospack = rospkg.RosPack()
 pkg_path = rospack.get_path('my_moving_cube_pkg')
@@ -4218,7 +4218,7 @@ We sometimes want to filter the observations given, so that the reinforcement al
 
 有时我们希望过滤观察结果，以加快强化学习算法的速度。
 
-```
+```python
 # Initialize the environment and get first state of the robot
 observation = env.reset()
 state = ''.join(map(str, observation))
@@ -4226,7 +4226,7 @@ state = ''.join(map(str, observation))
 
 Turn it into this:
 
-```
+```python
 # Initialize the environment and get first state of the robot
 observation = env.reset()
 simplified_observations = convert_obs_to_state(observation)
@@ -4259,7 +4259,7 @@ nextState = ''.join(map(str, simplified_observations))
 
 and define this **convert_obs_to_state** method:
 
-```
+```python
 def convert_obs_to_state(observations):
     """
     Converts the observations used for reward and so on to the essentials for the robot state
@@ -4385,7 +4385,7 @@ Having done that, then the final version of the training script should be:
 
 **start_training.py**
 
-```
+```python
 #!/usr/bin/env python
 
 import gym
@@ -4578,7 +4578,7 @@ Then copy on the file the following content:
 
 **qlearn.py**
 
-```
+```python
 '''
 Q-learning approach for different RL problems
 as part of the basic series on reinforcement learning @
@@ -4665,7 +4665,7 @@ Solution Exercise U2.1
 
 Well, the answer is simple: We go to the **MyMovingCubeOneDiskWalkEnv** and change the way in which we assign the rewards:
 
-```
+```python
 y_linear_speed = observations[4]
 rospy.logdebug("y_linear_speed=" + str(y_linear_speed))
 reward_y_axis_speed = y_linear_speed * self.y_linear_speed_reward_weight
@@ -4680,8 +4680,6 @@ y_linear_speed_reward_weight: 1000.0 # Multiplier for moving fast in the y Axis
 ```
 y_linear_speed_reward_weight: -1000.0 # Multiplier for mov
 ```
-
-
 
 
 
